@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Coop Vote Logo</title>
+  <desc id="desc">Blue ring with coop wordmark and three-color accent.</desc>
+  <circle cx="390" cy="520" r="335" fill="none" stroke="#0D49A7" stroke-width="28" />
+  <g font-family="Arial Black, Arial, sans-serif" font-size="360" font-weight="700" letter-spacing="-8">
+    <text x="170" y="650" fill="#FF6A00">co</text>
+    <text x="540" y="650" fill="#0D49A7">op</text>
+  </g>
+  <path
+    fill="#0C0CC3"
+    d="M566 398c74-86 183-95 288-69 68 17 130 8 170-29-30 96-109 145-234 145-89 0-156-12-224 24z"
+  />
+  <path
+    fill="#FFD311"
+    d="M575 432c71-70 170-76 260-55 55 13 103 8 138-18-28 72-89 112-193 112-79 0-141-10-205 16z"
+  />
+  <path
+    fill="#DF1125"
+    d="M585 464c64-54 150-57 225-42 47 9 89 6 118-13-26 55-73 85-151 85-67 0-121-8-192 10z"
+  />
+</svg>

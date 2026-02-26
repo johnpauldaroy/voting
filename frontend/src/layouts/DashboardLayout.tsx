@@ -6,7 +6,6 @@ import {
   LogOut,
   Menu,
   Settings,
-  ShieldCheck,
   Users,
   Vote,
   X,
@@ -16,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserRole } from "@/api/types";
+import coopVoteLogo from "@/assets/coop-vote-logo-cropped.png";
 
 interface NavItem {
   label: string;
@@ -90,12 +90,22 @@ export function DashboardLayout() {
         <div className={`flex h-[70px] items-center border-b ${desktopSidebarCollapsed ? "justify-center px-2" : "justify-between px-6"}`}>
           <Link
             to={homePath}
-            className={`inline-flex items-center gap-2 text-lg font-bold text-foreground ${desktopSidebarCollapsed ? "md:justify-center" : ""}`}
+            className={`inline-flex min-w-0 items-center gap-2 text-lg font-bold text-foreground ${
+              desktopSidebarCollapsed ? "md:justify-center" : "flex-1"
+            }`}
             onClick={() => setMobileSidebarOpen(false)}
-            title="AssemblyVote"
+            title="Coop Vote"
           >
-            <ShieldCheck className="h-5 w-5 text-primary" />
-            <span className={desktopSidebarCollapsed ? "md:hidden" : ""}>AssemblyVote</span>
+            <img
+              src={coopVoteLogo}
+              alt=""
+              aria-hidden="true"
+              onError={(event) => {
+                event.currentTarget.style.display = "none";
+              }}
+              className={`rounded bg-white/95 p-0.5 ${desktopSidebarCollapsed ? "h-7 w-7 object-cover object-left" : "h-9 w-auto shrink-0"}`}
+            />
+            <span className={`truncate whitespace-nowrap ${desktopSidebarCollapsed ? "md:hidden" : ""}`}>Coop Vote</span>
           </Link>
           <button
             aria-label="Close navigation"
@@ -179,7 +189,7 @@ export function DashboardLayout() {
               </button>
               <div>
                 <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                  Representative Assembly
+                  Coop Vote
                 </p>
                 <h1 className="text-lg font-bold text-foreground">{pageTitle}</h1>
               </div>

@@ -1,5 +1,5 @@
-import { ShieldCheck } from "lucide-react";
 import { Outlet } from "react-router-dom";
+import coopVoteLogo from "@/assets/coop-vote-logo-cropped.png";
 
 export function AuthLayout() {
   return (
@@ -8,13 +8,21 @@ export function AuthLayout() {
         <div className="grid w-full overflow-hidden rounded-2xl border bg-card shadow-card lg:grid-cols-2">
           <div className="hidden bg-gradient-to-br from-primary via-[#2148aa] to-[#163783] p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-between">
             <div className="inline-flex items-center gap-2 text-xl font-bold">
-              <ShieldCheck className="h-6 w-6" />
-              AssemblyVote
+              <img
+                src={coopVoteLogo}
+                alt=""
+                aria-hidden="true"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+                className="h-10 w-auto rounded bg-white/90 p-1"
+              />
+              <span className="whitespace-nowrap">Coop Vote</span>
             </div>
             <div className="space-y-3">
-              <h1 className="text-3xl font-extrabold leading-tight">Secure Representative Assembly Elections</h1>
+              <h1 className="text-3xl font-extrabold leading-tight">Secure Cooperative Elections</h1>
               <p className="max-w-sm text-sm text-primary-foreground/85">
-                Role-based access, anonymized ballots, and real-time outcomes in one trusted voting platform.
+                Role-based access, anonymized ballots, and real-time outcomes in one trusted Coop Vote platform.
               </p>
             </div>
             <p className="text-xs text-primary-foreground/70">Production Voting Suite</p>

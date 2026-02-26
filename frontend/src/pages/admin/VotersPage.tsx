@@ -182,7 +182,7 @@ async function buildVoterQrCardCanvas(options: {
 
   context.fillStyle = "#6b7280";
   context.font = "400 30px Segoe UI, Arial, sans-serif";
-  context.fillText("AssemblyVote", cardX + 420, cardY + 370);
+  context.fillText("Coop Vote", cardX + 420, cardY + 370);
 
   return canvas;
 }
@@ -495,7 +495,7 @@ export function VotersPage() {
       }
 
       const readmeLines = [
-        "AssemblyVote - Voter QR Card Export",
+        "Coop Vote - Voter QR Card Export",
         "",
         "Each PNG is an ID-style card: QR on the left, voter details on the right.",
         "QR payload format: voter_id=<value>&voter_key=<value>",

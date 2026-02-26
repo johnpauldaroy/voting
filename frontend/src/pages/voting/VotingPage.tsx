@@ -93,7 +93,7 @@ export function VotingPage() {
       return;
     }
 
-    const cacheKey = `assemblyvote_ballot_${electionId}`;
+    const cacheKey = `coop_vote_ballot_${electionId}`;
     let hasFreshCache = false;
 
     const cachedRaw = sessionStorage.getItem(cacheKey);
@@ -283,7 +283,7 @@ export function VotingPage() {
     }
 
     const lines = [
-      "Representative Assembly Voting - Ballot Receipt",
+      "Coop Vote - Ballot Receipt",
       "----------------------------------------------",
       `Receipt Reference: ${ballotReceipt.reference}`,
       `Election: ${ballotReceipt.election_title} (#${ballotReceipt.election_id})`,
