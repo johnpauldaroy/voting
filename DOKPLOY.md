@@ -25,6 +25,7 @@ It defaults Laravel logging to stderr (`LOG_CHANNEL=stderr`) for container-frien
 Set these if needed (defaults already work for same-domain deploy):
 - `VITE_API_BASE_URL=/api`
 - `VITE_API_ORIGIN=` (empty string)
+- `VITE_API_URL=` (alias for API origin, useful for split-domain setup)
 
 ## 3. Required Environment Variables
 
