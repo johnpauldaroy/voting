@@ -1,9 +1,11 @@
 ﻿import axios from "axios";
 
 const normalizeUrl = (value: string) => value.replace(/\/+$/, "");
+const LOCAL_API_ORIGIN = "http://localhost:8000";
+const isDev = import.meta.env.DEV;
 
 const apiOriginFromEnv = import.meta.env.VITE_API_ORIGIN ?? import.meta.env.VITE_API_URL ?? "";
-const API_ORIGIN = normalizeUrl(apiOriginFromEnv);
+const API_ORIGIN = normalizeUrl(apiOriginFromEnv || (isDev ? LOCAL_API_ORIGIN : ""));
 const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").trim();
 
 const API_BASE_URL = (() => {
@@ -13,6 +15,10 @@ const API_BASE_URL = (() => {
 
   if (API_ORIGIN) {
     return `${API_ORIGIN}/api`;
+  }
+
+  if (isDev) {
+    return `${LOCAL_API_ORIGIN}/api`;
   }
 
   return "/api";
@@ -31,7 +37,9 @@ export const api = axios.create({
 });
 
 export async function ensureCsrfCookie() {
-  await axios.get(`${API_ORIGIN || ""}/sanctum/csrf-cookie`, {
+  const csrfOrigin = API_ORIGIN || (isDev ? LOCAL_API_ORIGIN : "");
+
+  await axios.get(`${csrfOrigin}/sanctum/csrf-cookie`, {
     withCredentials: true,
     withXSRFToken: true,
     xsrfCookieName: "XSRF-TOKEN",
