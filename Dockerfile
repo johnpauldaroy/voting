@@ -58,6 +58,7 @@ COPY --from=frontend-builder /app/frontend/dist /var/www/frontend/dist
 
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisord.conf /etc/supervisord.conf
+COPY docker/php-fpm-env.conf /usr/local/etc/php-fpm.d/zz-env.conf
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 RUN chmod +x /usr/local/bin/entrypoint.sh \

@@ -10,6 +10,8 @@ It serves:
 - API on `/api/*`
 - Sanctum CSRF endpoint on `/sanctum/csrf-cookie`
 
+The image also sets PHP-FPM `clear_env = no` so Dokploy environment variables (for example `APP_KEY`) are available to Laravel during web requests.
+
 ## 1. Dokploy App Setup
 
 1. Create a new app in Dokploy from this repo.
