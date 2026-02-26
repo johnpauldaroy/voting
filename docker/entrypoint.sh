@@ -7,14 +7,46 @@ if [ ! -f .env ] && [ -f .env.example ]; then
   cp .env.example .env
 fi
 
-# Ensure APP_KEY is persisted in .env so Laravel can boot even if runtime env forwarding is restricted.
-if [ -n "${APP_KEY:-}" ]; then
-  if grep -q '^APP_KEY=' .env; then
-    sed -i "s|^APP_KEY=.*|APP_KEY=${APP_KEY}|" .env
-  else
-    printf '\nAPP_KEY=%s\n' "${APP_KEY}" >> .env
+persist_env_var() {
+  var_name="$1"
+  eval "var_value=\${$var_name:-}"
+
+  if [ -z "${var_value}" ]; then
+    return
   fi
-fi
+
+  escaped_value="$(printf '%s' "${var_value}" | sed 's/[\/&]/\\&/g')"
+
+  if grep -q "^${var_name}=" .env; then
+    sed -i "s/^${var_name}=.*/${var_name}=${escaped_value}/" .env
+  else
+    printf '\n%s=%s\n' "${var_name}" "${var_value}" >> .env
+  fi
+}
+
+for env_key in \
+  APP_NAME \
+  APP_ENV \
+  APP_DEBUG \
+  APP_URL \
+  APP_KEY \
+  DB_CONNECTION \
+  DB_HOST \
+  DB_PORT \
+  DB_DATABASE \
+  DB_USERNAME \
+  DB_PASSWORD \
+  CACHE_STORE \
+  SESSION_DRIVER \
+  QUEUE_CONNECTION \
+  SESSION_SECURE_COOKIE \
+  SESSION_SAME_SITE \
+  SANCTUM_STATEFUL_DOMAINS \
+  CORS_ALLOWED_ORIGINS \
+  FORCE_HTTPS
+do
+  persist_env_var "${env_key}"
+done
 
 mkdir -p \
   bootstrap/cache \
