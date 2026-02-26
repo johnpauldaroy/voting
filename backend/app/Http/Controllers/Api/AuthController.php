@@ -1,0 +1,183 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Enums\ElectionStatus;
+use App\Enums\UserRole;
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\LoginRequest;
+use App\Http\Resources\UserResource;
+use App\Models\Election;
+use App\Models\User;
+use App\Models\Vote;
+use App\Services\AuditLogger;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
+
+class AuthController extends Controller
+{
+    public function previewVoterAccess(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'election_id' => ['required', 'integer', 'exists:elections,id'],
+            'voter_id' => ['required', 'string', 'max:100'],
+            'voter_key' => ['required', 'string', 'max:255'],
+        ]);
+
+        $voter = User::query()
+            ->where('role', UserRole::VOTER->value)
+            ->where('voter_id', trim((string) $data['voter_id']))
+            ->where('voter_key', (string) $data['voter_key'])
+            ->first();
+
+        if (! $voter) {
+            throw ValidationException::withMessages([
+                'voter_id' => ['The provided voter credentials are incorrect.'],
+            ]);
+        }
+
+        /** @var Election $election */
+        $election = Election::query()
+            ->select(['id', 'title', 'status', 'start_datetime', 'end_datetime'])
+            ->findOrFail((int) $data['election_id']);
+
+        $voterHash = Vote::voterHash((int) $voter->id, (int) $election->id);
+        $votedAt = Vote::query()
+            ->where('election_id', $election->id)
+            ->where('voter_hash', $voterHash)
+            ->max('created_at');
+        $hasVoted = $votedAt !== null;
+
+        $canProceed = true;
+        $reason = null;
+
+        if (! $voter->is_active) {
+            $canProceed = false;
+            $reason = 'Voter account is inactive.';
+        } elseif ($hasVoted) {
+            $canProceed = false;
+            $reason = 'This voter has already cast their vote.';
+        } elseif ($election->status !== ElectionStatus::OPEN->value) {
+            $canProceed = false;
+            $reason = 'Election is not currently open for voting.';
+        } elseif ($election->hasEnded()) {
+            $canProceed = false;
+            $reason = 'Voting window has ended.';
+        }
+
+        return response()->json([
+            'data' => [
+                'voter' => [
+                    'name' => $voter->name,
+                    'branch' => $voter->branch,
+                    'voter_id' => $voter->voter_id,
+                    'is_active' => (bool) $voter->is_active,
+                    'has_voted' => $hasVoted,
+                    'voted_at' => $votedAt,
+                ],
+                'election' => [
+                    'id' => $election->id,
+                    'title' => $election->title,
+                    'status' => $election->status,
+                    'start_datetime' => $election->start_datetime,
+                    'end_datetime' => $election->end_datetime,
+                ],
+                'can_proceed' => $canProceed,
+                'reason' => $reason,
+            ],
+        ]);
+    }
+
+    public function login(LoginRequest $request): JsonResponse
+    {
+        $loginType = (string) $request->input('login_type', 'email');
+        $remember = (bool) $request->boolean('remember');
+
+        if ($loginType === 'voter') {
+            $voterId = trim((string) $request->input('voter_id'));
+            $voterKey = (string) $request->input('voter_key');
+
+            $voter = User::query()
+                ->where('role', UserRole::VOTER->value)
+                ->where('voter_id', $voterId)
+                ->where('voter_key', $voterKey)
+                ->first();
+
+            if (! $voter) {
+                AuditLogger::log(
+                    $request,
+                    'auth.login_failed',
+                    'Failed voter login attempt for voter_id: '.$voterId
+                );
+
+                throw ValidationException::withMessages([
+                    'voter_id' => ['The provided voter credentials are incorrect.'],
+                ]);
+            }
+
+            Auth::login($voter, $remember);
+        } else {
+            $credentials = $request->safe()->only(['email', 'password']);
+
+            if (! Auth::attempt($credentials, $remember)) {
+                AuditLogger::log(
+                    $request,
+                    'auth.login_failed',
+                    'Failed login attempt for email: '.$request->input('email')
+                );
+
+                throw ValidationException::withMessages([
+                    'email' => ['The provided credentials are incorrect.'],
+                ]);
+            }
+        }
+
+        $request->session()->regenerate();
+
+        $user = $request->user();
+
+        if (! $user || ! $user->is_active) {
+            Auth::guard('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return response()->json([
+                'message' => 'Your account is inactive.',
+            ], 403);
+        }
+
+        AuditLogger::log(
+            $request,
+            'auth.login',
+            $loginType === 'voter' ? 'User logged in with voter credentials.' : 'User logged in.'
+        );
+
+        return response()->json([
+            'data' => new UserResource($user),
+        ]);
+    }
+
+    public function logout(Request $request): JsonResponse
+    {
+        if ($request->user()) {
+            AuditLogger::log($request, 'auth.logout', 'User logged out.');
+        }
+
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return response()->json([
+            'message' => 'Logged out successfully.',
+        ]);
+    }
+
+    public function user(Request $request): JsonResponse
+    {
+        return response()->json([
+            'data' => new UserResource($request->user()),
+        ]);
+    }
+}
