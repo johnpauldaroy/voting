@@ -66,7 +66,7 @@ fi
 
 current_app_key="$(grep '^APP_KEY=' .env | head -n1 | cut -d= -f2- || true)"
 if [ -z "${current_app_key}" ]; then
-  php artisan key:generate --force --no-interaction
+  php artisan key:generate --force --no-interaction || true
 fi
 
 mkdir -p \
@@ -83,8 +83,8 @@ chown -R www-data:www-data storage bootstrap/cache || true
 chmod -R ug+rwX storage bootstrap/cache || true
 
 php artisan storage:link >/dev/null 2>&1 || true
-php artisan optimize:clear
-php artisan config:cache
+php artisan optimize:clear >/dev/null 2>&1 || true
+php artisan config:cache >/dev/null 2>&1 || true
 
 if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
   php artisan migrate --force
