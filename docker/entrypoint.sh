@@ -64,6 +64,10 @@ if ! grep -q '^CACHE_STORE=' .env; then
   printf '\nCACHE_STORE=file\n' >> .env
 fi
 
+if ! grep -q '^SESSION_DRIVER=' .env; then
+  printf '\nSESSION_DRIVER=file\n' >> .env
+fi
+
 current_app_key="$(grep '^APP_KEY=' .env | head -n1 | cut -d= -f2- || true)"
 if [ -z "${current_app_key}" ]; then
   php artisan key:generate --force --no-interaction || true
