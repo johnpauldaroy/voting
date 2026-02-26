@@ -30,6 +30,9 @@ for env_key in \
   APP_DEBUG \
   APP_URL \
   APP_KEY \
+  LOG_CHANNEL \
+  LOG_LEVEL \
+  LOG_STACK \
   DB_CONNECTION \
   DB_HOST \
   DB_PORT \
@@ -56,7 +59,10 @@ mkdir -p \
   storage/framework/views \
   storage/logs
 
-chown -R www-data:www-data storage bootstrap/cache
+touch storage/logs/laravel.log
+
+chown -R www-data:www-data storage bootstrap/cache || true
+chmod -R ug+rwX storage bootstrap/cache || true
 
 php artisan storage:link >/dev/null 2>&1 || true
 php artisan optimize:clear >/dev/null 2>&1 || true

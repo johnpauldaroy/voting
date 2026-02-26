@@ -11,6 +11,7 @@ It serves:
 - Sanctum CSRF endpoint on `/sanctum/csrf-cookie`
 
 The image also sets PHP-FPM `clear_env = no` so Dokploy environment variables (for example `APP_KEY`) are available to Laravel during web requests.
+It defaults Laravel logging to stderr (`LOG_CHANNEL=stderr`) for container-friendly logs.
 
 ## 1. Dokploy App Setup
 

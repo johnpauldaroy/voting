@@ -36,6 +36,9 @@ FROM php:8.2-fpm-alpine AS runtime
 
 WORKDIR /var/www
 
+ENV LOG_CHANNEL=stderr
+ENV LOG_LEVEL=info
+
 RUN apk add --no-cache \
     bash \
     curl \
