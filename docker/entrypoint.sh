@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
 set -eu
+umask 0002
 
 cd /var/www/backend
 
@@ -51,6 +52,23 @@ do
   persist_env_var "${env_key}"
 done
 
+if ! grep -q '^LOG_CHANNEL=' .env; then
+  printf '\nLOG_CHANNEL=stderr\n' >> .env
+fi
+
+if ! grep -q '^LOG_LEVEL=' .env; then
+  printf '\nLOG_LEVEL=info\n' >> .env
+fi
+
+if ! grep -q '^CACHE_STORE=' .env; then
+  printf '\nCACHE_STORE=file\n' >> .env
+fi
+
+current_app_key="$(grep '^APP_KEY=' .env | head -n1 | cut -d= -f2- || true)"
+if [ -z "${current_app_key}" ]; then
+  php artisan key:generate --force --no-interaction
+fi
+
 mkdir -p \
   bootstrap/cache \
   storage/framework/cache \
@@ -65,8 +83,8 @@ chown -R www-data:www-data storage bootstrap/cache || true
 chmod -R ug+rwX storage bootstrap/cache || true
 
 php artisan storage:link >/dev/null 2>&1 || true
-php artisan optimize:clear >/dev/null 2>&1 || true
-php artisan config:cache >/dev/null 2>&1 || true
+php artisan optimize:clear
+php artisan config:cache
 
 if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
   php artisan migrate --force

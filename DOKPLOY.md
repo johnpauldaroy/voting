@@ -47,6 +47,7 @@ At minimum set:
 
 Optional:
 - `RUN_MIGRATIONS=true` (runs `php artisan migrate --force` on container start)
+- `LOG_CHANNEL=stderr` (recommended; avoids filesystem log permission issues)
 
 ## 4. First Deploy Checklist
 
