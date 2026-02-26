@@ -14,7 +14,9 @@ use App\Services\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -121,7 +123,17 @@ class AuthController extends Controller
         } else {
             $credentials = $request->safe()->only(['email', 'password']);
 
-            if (! Auth::attempt($credentials, $remember)) {
+            try {
+                $authenticated = $this->attemptLoginWithReconnect($credentials, $remember);
+            } catch (Throwable $exception) {
+                report($exception);
+
+                return response()->json([
+                    'message' => 'Authentication service is temporarily unavailable.',
+                ], 503);
+            }
+
+            if (! $authenticated) {
                 AuditLogger::log(
                     $request,
                     'auth.login_failed',
@@ -157,6 +169,30 @@ class AuthController extends Controller
         return response()->json([
             'data' => new UserResource($user),
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     */
+    private function attemptLoginWithReconnect(array $credentials, bool $remember): bool
+    {
+        try {
+            return Auth::attempt($credentials, $remember);
+        } catch (Throwable $exception) {
+            $defaultConnection = (string) config('database.default', 'mysql');
+
+            logger()->warning('Initial login DB query failed; retrying once after reconnect.', [
+                'connection' => $defaultConnection,
+                'host' => config("database.connections.{$defaultConnection}.host"),
+                'port' => config("database.connections.{$defaultConnection}.port"),
+                'error' => $exception->getMessage(),
+            ]);
+
+            DB::purge($defaultConnection);
+            DB::reconnect($defaultConnection);
+
+            return Auth::attempt($credentials, $remember);
+        }
     }
 
     public function logout(Request $request): JsonResponse
