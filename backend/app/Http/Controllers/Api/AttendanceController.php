@@ -93,11 +93,19 @@ class AttendanceController extends Controller
 
         if (! $voter) {
             return response()->json([
-                'message' => 'Voter ID was not found.',
+                'message' => 'No user registered',
             ], 422);
         }
 
         $status = (string) $data['status'];
+        $isAlreadyPresent = $voter->attendance_status === AttendanceStatus::PRESENT->value;
+
+        if ($status === AttendanceStatus::PRESENT->value && $isAlreadyPresent) {
+            return response()->json([
+                'message' => "{$voter->name} is already marked as present",
+            ], 409);
+        }
+
         $checkedInAt = $status === AttendanceStatus::PRESENT->value
             ? ($data['checked_in_at'] ?? now()->toIso8601String())
             : null;
@@ -118,6 +126,9 @@ class AttendanceController extends Controller
         );
 
         return response()->json([
+            'message' => $status === AttendanceStatus::PRESENT->value
+                ? "{$voter->name} not present in the attendance if scanned"
+                : "Attendance updated for {$voter->name}",
             'data' => $this->toAttendanceRow($voter->fresh(), $electionId, $electionTitle, 'manual', $checkedInAt),
         ], 201);
     }

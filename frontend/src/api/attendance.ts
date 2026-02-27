@@ -26,6 +26,11 @@ interface UpsertAttendancePayload {
   checked_in_at?: string | null;
 }
 
+interface UpsertAttendanceResponse {
+  message: string;
+  data: Attendance;
+}
+
 interface ImportAttendanceResponse {
   message: string;
   meta: {
@@ -50,8 +55,8 @@ export async function getAttendances(params: GetAttendancesParams) {
 }
 
 export async function upsertAttendance(payload: UpsertAttendancePayload) {
-  const response = await api.post<{ data: Attendance }>("/attendances", payload);
-  return response.data.data;
+  const response = await api.post<UpsertAttendanceResponse>("/attendances", payload);
+  return response.data;
 }
 
 export async function importAttendances(file: File, electionId?: number) {
