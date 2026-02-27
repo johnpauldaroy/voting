@@ -13,6 +13,7 @@ import { AdminDashboardPage } from "@/pages/admin/AdminDashboardPage";
 import { VotersPage } from "@/pages/admin/VotersPage";
 import { BallotPage } from "@/pages/admin/BallotPage";
 import { SettingsPage } from "@/pages/admin/SettingsPage";
+import { AttendanceDashboard } from "@/pages/admin/AttendanceDashboard";
 import { CreateElectionPage } from "@/pages/admin/CreateElectionPage";
 import { EditElectionPage } from "@/pages/admin/EditElectionPage";
 import { ManagePositionsPage } from "@/pages/admin/ManagePositionsPage";
@@ -67,6 +68,7 @@ export function AppRouter() {
             <Route element={<RoleRoute roles={["super_admin", "election_admin"]} />}>
               <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+              <Route path="/admin/attendance" element={<AttendanceDashboard />} />
               <Route path="/admin/voters" element={<VotersPage />} />
               <Route path="/admin/ballot" element={<BallotPage />} />
               <Route path="/admin/settings" element={<SettingsPage />} />

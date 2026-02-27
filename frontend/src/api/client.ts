@@ -55,6 +55,10 @@ export function extractErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const data = error.response?.data as { message?: string; errors?: Record<string, string[]> } | undefined;
 
+    if (!error.response) {
+      return `Cannot connect to the API server at ${API_BASE_URL}. Start the Laravel backend and try again.`;
+    }
+
     if (data?.errors) {
       const firstField = Object.values(data.errors)[0];
       if (firstField?.[0]) {

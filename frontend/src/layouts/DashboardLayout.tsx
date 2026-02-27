@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
+  CalendarCheck2,
   ChevronRight,
   LayoutDashboard,
   LogOut,
@@ -27,6 +28,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: "Ballot", path: "/elections/active", roles: ["voter"], icon: Vote },
   { label: "Dashboard", path: "/admin/dashboard", roles: ["super_admin", "election_admin"], icon: LayoutDashboard },
+  { label: "Attendance", path: "/admin/attendance", roles: ["super_admin", "election_admin"], icon: CalendarCheck2 },
   { label: "Voters", path: "/admin/voters", roles: ["super_admin", "election_admin"], icon: Users },
   { label: "Ballot", path: "/admin/ballot", roles: ["super_admin", "election_admin"], icon: Vote },
   { label: "Settings", path: "/admin/settings", roles: ["super_admin", "election_admin"], icon: Settings },
