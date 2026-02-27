@@ -30,6 +30,10 @@ class AttendanceResource extends JsonResource
                 'name' => $this->user?->name,
                 'branch' => $this->user?->branch,
                 'voter_id' => $this->user?->voter_id,
+                'attendance_status' => in_array($this->user?->attendance_status, ['present', 'absent'], true)
+                    ? $this->user?->attendance_status
+                    : 'absent',
+                'already_voted' => (bool) $this->user?->already_voted,
             ]),
             'created_at' => optional($this->created_at)->toIso8601String(),
             'updated_at' => optional($this->updated_at)->toIso8601String(),

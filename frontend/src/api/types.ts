@@ -11,6 +11,8 @@ export interface User {
   voter_key: string | null;
   role: UserRole;
   is_active: boolean;
+  attendance_status: AttendanceStatus;
+  already_voted: boolean;
   has_voted?: boolean;
   voted_at?: string | null;
   created_at: string;
@@ -67,6 +69,8 @@ export interface Attendance {
     name: string;
     branch: string | null;
     voter_id: string | null;
+    attendance_status?: AttendanceStatus;
+    already_voted?: boolean;
   };
   created_at: string;
   updated_at: string;

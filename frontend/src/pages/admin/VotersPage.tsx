@@ -885,6 +885,8 @@ export function VotersPage() {
           <TableHeader>
             <TableRow>
               <TableHead>VOTED? (SELECTED ELECTION)</TableHead>
+              <TableHead>ATTENDANCE STATUS</TableHead>
+              <TableHead>ALREADY VOTED</TableHead>
               <TableHead>NAME</TableHead>
               <TableHead>BRANCH</TableHead>
               <TableHead>VOTER ID</TableHead>
@@ -899,6 +901,12 @@ export function VotersPage() {
                   <TableRow key={`voter-skeleton-${index}`}>
                     <TableCell>
                       <div className="mx-auto h-3 w-8 animate-pulse rounded bg-secondary" />
+                    </TableCell>
+                    <TableCell>
+                      <div className="h-6 w-24 animate-pulse rounded-full bg-secondary" />
+                    </TableCell>
+                    <TableCell>
+                      <div className="mx-auto h-3 w-10 animate-pulse rounded bg-secondary" />
                     </TableCell>
                     <TableCell>
                       <div className="h-3 w-32 animate-pulse rounded bg-secondary" />
@@ -931,6 +939,20 @@ export function VotersPage() {
                         <span className="font-bold text-green-600">YES</span>
                       ) : (
                         <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {voter.attendance_status === "present" ? (
+                        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Present</Badge>
+                      ) : (
+                        <Badge variant="secondary">Absent</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {voter.already_voted ? (
+                        <span className="font-bold text-green-600">YES</span>
+                      ) : (
+                        <span className="text-muted-foreground">NO</span>
                       )}
                     </TableCell>
                     <TableCell>{voter.name}</TableCell>
@@ -989,7 +1011,7 @@ export function VotersPage() {
 
             {!loading && voters.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                <TableCell colSpan={9} className="text-center text-muted-foreground">
                   No voters found.
                 </TableCell>
               </TableRow>

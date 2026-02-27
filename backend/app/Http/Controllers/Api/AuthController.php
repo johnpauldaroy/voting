@@ -7,7 +7,6 @@ use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Resources\UserResource;
-use App\Models\Attendance;
 use App\Models\Election;
 use App\Models\User;
 use App\Models\Vote;
@@ -70,7 +69,7 @@ class AuthController extends Controller
             $reason = 'Voting window has ended.';
         } elseif (! $this->isVoterPresentForElection((int) $voter->id, (int) $election->id)) {
             $canProceed = false;
-            $reason = 'Voter is not marked present for this election.';
+            $reason = "{$voter->name} is not marked present for this election. Attendance first to vote.";
         }
 
         return response()->json([
@@ -126,7 +125,7 @@ class AuthController extends Controller
 
             if ($electionId && ! $this->isVoterPresentForElection((int) $voter->id, $electionId)) {
                 return response()->json([
-                    'message' => 'Voter is not marked present for this election.',
+                    'message' => "{$voter->name} is not marked present for this election. Attendance first to vote.",
                 ], 403);
             }
 
@@ -236,10 +235,9 @@ class AuthController extends Controller
 
     private function isVoterPresentForElection(int $userId, int $electionId): bool
     {
-        return Attendance::query()
-            ->where('election_id', $electionId)
-            ->where('user_id', $userId)
-            ->where('status', 'present')
+        return User::query()
+            ->whereKey($userId)
+            ->where('attendance_status', 'present')
             ->exists();
     }
 }

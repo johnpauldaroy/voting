@@ -115,7 +115,8 @@ export function AttendanceDashboard() {
                 <TableHead>Name</TableHead>
                 <TableHead>Branch</TableHead>
                 <TableHead>Check-in</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Attendance Status</TableHead>
+                <TableHead>Already Voted</TableHead>
                 <TableHead>Source</TableHead>
               </TableRow>
             </TableHeader>
@@ -139,6 +140,9 @@ export function AttendanceDashboard() {
                         <div className="h-6 w-20 animate-pulse rounded-full bg-secondary" />
                       </TableCell>
                       <TableCell>
+                        <div className="h-3 w-10 animate-pulse rounded bg-secondary" />
+                      </TableCell>
+                      <TableCell>
                         <div className="h-3 w-16 animate-pulse rounded bg-secondary" />
                       </TableCell>
                     </TableRow>
@@ -156,12 +160,19 @@ export function AttendanceDashboard() {
                       <Badge variant="secondary">Absent</Badge>
                     )}
                   </TableCell>
+                  <TableCell>
+                    {row.user?.already_voted ? (
+                      <span className="font-bold text-green-600">YES</span>
+                    ) : (
+                      <span className="text-muted-foreground">NO</span>
+                    )}
+                  </TableCell>
                   <TableCell className="capitalize">{row.source}</TableCell>
                 </TableRow>
                   ))}
               {!loading && records.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
                     No attendance records found.
                   </TableCell>
                 </TableRow>

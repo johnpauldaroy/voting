@@ -52,11 +52,6 @@ class Election extends Model
         return $this->hasMany(Vote::class);
     }
 
-    public function attendances(): HasMany
-    {
-        return $this->hasMany(Attendance::class);
-    }
-
     public function scopeForDashboard(Builder $query): Builder
     {
         return $query->with(['creator:id,name,email', 'positions.candidates'])->withCount('votes');

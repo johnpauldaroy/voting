@@ -23,6 +23,10 @@ class UserResource extends JsonResource
             'voter_key' => $this->voter_key,
             'role' => $this->role,
             'is_active' => (bool) $this->is_active,
+            'attendance_status' => in_array($this->attendance_status, ['present', 'absent'], true)
+                ? $this->attendance_status
+                : 'absent',
+            'already_voted' => (bool) $this->already_voted,
             'has_voted' => $this->when(isset($this->has_voted), fn () => (bool) $this->has_voted),
             'voted_at' => $this->when(isset($this->voted_at), fn () => $this->voted_at),
             'created_at' => optional($this->created_at)->toIso8601String(),

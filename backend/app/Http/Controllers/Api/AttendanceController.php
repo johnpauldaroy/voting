@@ -5,8 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\AttendanceStatus;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
-use App\Http\Resources\AttendanceResource;
-use App\Models\Attendance;
+use App\Models\Election;
 use App\Models\User;
 use App\Services\AuditLogger;
 use Illuminate\Http\JsonResponse;
@@ -27,24 +26,17 @@ class AttendanceController extends Controller
             'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
         ]);
 
-        $query = Attendance::query()
-            ->with([
-                'election:id,title',
-                'user:id,name,branch,voter_id',
-            ])
-            ->orderByDesc('updated_at');
-
-        if (! empty($data['election_id'])) {
-            $query->where('election_id', (int) $data['election_id']);
-        }
+        $query = User::query()
+            ->where('role', UserRole::VOTER->value)
+            ->orderBy('name');
 
         if (! empty($data['status'])) {
-            $query->where('status', (string) $data['status']);
+            $query->where('attendance_status', (string) $data['status']);
         }
 
         if (! empty($data['search'])) {
             $search = (string) $data['search'];
-            $query->whereHas('user', function ($builder) use ($search): void {
+            $query->where(function ($builder) use ($search): void {
                 $builder->where('name', 'like', '%'.$search.'%')
                     ->orWhere('voter_id', 'like', '%'.$search.'%')
                     ->orWhere('branch', 'like', '%'.$search.'%');
@@ -52,18 +44,30 @@ class AttendanceController extends Controller
         }
 
         $totalCount = (clone $query)->count();
-        $presentCount = (clone $query)->where('status', AttendanceStatus::PRESENT->value)->count();
-        $absentCount = (clone $query)->where('status', AttendanceStatus::ABSENT->value)->count();
+        $presentCount = (clone $query)->where('attendance_status', AttendanceStatus::PRESENT->value)->count();
+        $absentCount = (clone $query)->where('attendance_status', AttendanceStatus::ABSENT->value)->count();
 
-        $attendances = $query->paginate((int) ($data['per_page'] ?? 25));
+        $electionId = isset($data['election_id']) ? (int) $data['election_id'] : null;
+        $electionTitle = null;
+        if ($electionId !== null) {
+            $electionTitle = Election::query()
+                ->whereKey($electionId)
+                ->value('title');
+        }
+
+        $voters = $query->paginate((int) ($data['per_page'] ?? 25));
+
+        $rows = $voters->getCollection()->map(
+            fn (User $voter): array => $this->toAttendanceRow($voter, $electionId, $electionTitle, 'manual')
+        )->values()->all();
 
         return response()->json([
-            'data' => AttendanceResource::collection($attendances->getCollection()),
+            'data' => $rows,
             'meta' => [
-                'current_page' => $attendances->currentPage(),
-                'last_page' => $attendances->lastPage(),
-                'per_page' => $attendances->perPage(),
-                'total' => $attendances->total(),
+                'current_page' => $voters->currentPage(),
+                'last_page' => $voters->lastPage(),
+                'per_page' => $voters->perPage(),
+                'total' => $voters->total(),
             ],
             'summary' => [
                 'total' => $totalCount,
@@ -94,38 +98,27 @@ class AttendanceController extends Controller
         }
 
         $status = (string) $data['status'];
-        $checkedInAt = $data['checked_in_at'] ?? null;
+        $checkedInAt = $status === AttendanceStatus::PRESENT->value
+            ? ($data['checked_in_at'] ?? now()->toIso8601String())
+            : null;
 
-        if ($status === AttendanceStatus::PRESENT->value && ! $checkedInAt) {
-            $checkedInAt = now();
-        }
+        $voter->forceFill([
+            'attendance_status' => $status,
+        ])->save();
 
-        if ($status === AttendanceStatus::ABSENT->value) {
-            $checkedInAt = null;
-        }
-
-        $attendance = Attendance::query()->updateOrCreate(
-            [
-                'election_id' => (int) $data['election_id'],
-                'user_id' => $voter->id,
-            ],
-            [
-                'status' => $status,
-                'checked_in_at' => $checkedInAt,
-                'source' => 'manual',
-            ]
-        );
+        $electionId = (int) $data['election_id'];
+        $electionTitle = Election::query()
+            ->whereKey($electionId)
+            ->value('title');
 
         AuditLogger::log(
             $request,
             'attendance.upsert',
-            "Attendance updated for voter #{$voter->id} in election #{$attendance->election_id}."
+            "Attendance updated for voter #{$voter->id} in election #{$electionId}."
         );
 
-        $attendance->load(['election:id,title', 'user:id,name,branch,voter_id']);
-
         return response()->json([
-            'data' => new AttendanceResource($attendance),
+            'data' => $this->toAttendanceRow($voter->fresh(), $electionId, $electionTitle, 'manual', $checkedInAt),
         ], 201);
     }
 
@@ -133,12 +126,10 @@ class AttendanceController extends Controller
     {
         $request->validate([
             'file' => ['required', 'file', 'mimes:csv,txt', 'max:5120'],
-            'election_id' => ['nullable', 'integer', 'exists:elections,id'],
         ]);
 
         /** @var UploadedFile $file */
         $file = $request->file('file');
-        $defaultElectionId = $request->filled('election_id') ? (int) $request->input('election_id') : null;
         $rows = $this->readCsvFile($file);
 
         if (count($rows) < 2) {
@@ -156,12 +147,6 @@ class AttendanceController extends Controller
             || ! in_array('status', $headers, true)) {
             return response()->json([
                 'message' => 'CSV must contain VOTER ID and STATUS columns.',
-            ], 422);
-        }
-
-        if ($defaultElectionId === null && ! in_array('election_id', $headers, true)) {
-            return response()->json([
-                'message' => 'CSV must include ELECTION ID column when election_id is not provided in the request.',
             ], 422);
         }
 
@@ -192,17 +177,13 @@ class AttendanceController extends Controller
             }
 
             $normalized = [
-                'election_id' => $defaultElectionId ?? (isset($row['election_id']) ? (int) $row['election_id'] : null),
                 'voter_id' => $row['voter_id'] ?? null,
                 'status' => $status,
-                'checked_in_at' => $row['checked_in_at'] ?? null,
             ];
 
             $validator = Validator::make($normalized, [
-                'election_id' => ['required', 'integer', 'exists:elections,id'],
                 'voter_id' => ['required', 'string', 'max:100'],
                 'status' => ['required', 'in:present,absent'],
-                'checked_in_at' => ['nullable', 'date'],
             ]);
 
             if ($validator->fails()) {
@@ -229,12 +210,8 @@ class AttendanceController extends Controller
             }
 
             $payloads[] = [
-                'election_id' => $normalized['election_id'],
                 'user_id' => $voter->id,
                 'status' => $normalized['status'],
-                'checked_in_at' => $normalized['status'] === AttendanceStatus::ABSENT->value
-                    ? null
-                    : ($normalized['checked_in_at'] ?: now()),
             ];
         }
 
@@ -245,32 +222,18 @@ class AttendanceController extends Controller
             ], 422);
         }
 
-        $created = 0;
         $updated = 0;
 
-        DB::transaction(function () use ($payloads, &$created, &$updated): void {
+        DB::transaction(function () use ($payloads, &$updated): void {
             foreach ($payloads as $payload) {
-                $existing = Attendance::query()
-                    ->where('election_id', $payload['election_id'])
-                    ->where('user_id', $payload['user_id'])
-                    ->first();
+                $affected = User::query()
+                    ->whereKey($payload['user_id'])
+                    ->update([
+                        'attendance_status' => $payload['status'],
+                    ]);
 
-                if ($existing) {
-                    $existing->update([
-                        'status' => $payload['status'],
-                        'checked_in_at' => $payload['checked_in_at'],
-                        'source' => 'import',
-                    ]);
+                if ($affected > 0) {
                     $updated++;
-                } else {
-                    Attendance::create([
-                        'election_id' => $payload['election_id'],
-                        'user_id' => $payload['user_id'],
-                        'status' => $payload['status'],
-                        'checked_in_at' => $payload['checked_in_at'],
-                        'source' => 'import',
-                    ]);
-                    $created++;
                 }
             }
         });
@@ -278,13 +241,13 @@ class AttendanceController extends Controller
         AuditLogger::log(
             $request,
             'attendance.import',
-            "Attendance import completed. Created: {$created}, Updated: {$updated}, Processed: ".count($payloads).'.'
+            "Attendance import completed. Updated: {$updated}, Processed: ".count($payloads).'.'
         );
 
         return response()->json([
             'message' => 'Attendance imported successfully.',
             'meta' => [
-                'created' => $created,
+                'created' => 0,
                 'updated' => $updated,
                 'total_processed' => count($payloads),
             ],
@@ -322,5 +285,44 @@ class AttendanceController extends Controller
             'absent', 'a', '0', 'no', 'false' => AttendanceStatus::ABSENT->value,
             default => null,
         };
+    }
+
+    private function toAttendanceRow(
+        User $voter,
+        ?int $electionId,
+        ?string $electionTitle,
+        string $source,
+        ?string $checkedInAtOverride = null
+    ): array {
+        $status = in_array($voter->attendance_status, ['present', 'absent'], true)
+            ? $voter->attendance_status
+            : AttendanceStatus::ABSENT->value;
+
+        $checkedInAt = $status === AttendanceStatus::PRESENT->value
+            ? ($checkedInAtOverride ?? optional($voter->updated_at)->toIso8601String())
+            : null;
+
+        return [
+            'id' => $voter->id,
+            'election_id' => $electionId ?? 0,
+            'user_id' => $voter->id,
+            'status' => $status,
+            'checked_in_at' => $checkedInAt,
+            'source' => $source,
+            'election' => $electionId !== null ? [
+                'id' => $electionId,
+                'title' => $electionTitle,
+            ] : null,
+            'user' => [
+                'id' => $voter->id,
+                'name' => $voter->name,
+                'branch' => $voter->branch,
+                'voter_id' => $voter->voter_id,
+                'attendance_status' => $status,
+                'already_voted' => (bool) $voter->already_voted,
+            ],
+            'created_at' => optional($voter->created_at)->toIso8601String(),
+            'updated_at' => optional($voter->updated_at)->toIso8601String(),
+        ];
     }
 }

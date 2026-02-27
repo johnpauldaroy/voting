@@ -28,6 +28,8 @@ class User extends Authenticatable
         'password',
         'role',
         'is_active',
+        'attendance_status',
+        'already_voted',
     ];
 
     /**
@@ -50,6 +52,7 @@ class User extends Authenticatable
         return [
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'already_voted' => 'boolean',
         ];
     }
 
@@ -61,11 +64,6 @@ class User extends Authenticatable
     public function auditLogs(): HasMany
     {
         return $this->hasMany(AuditLog::class);
-    }
-
-    public function attendances(): HasMany
-    {
-        return $this->hasMany(Attendance::class);
     }
 
     public function isSuperAdmin(): bool

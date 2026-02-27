@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Vote\StoreVoteRequest;
 use App\Http\Resources\VoteReceiptResource;
-use App\Models\Attendance;
 use App\Models\Election;
+use App\Models\User;
 use App\Models\Vote;
 use App\Services\AuditLogger;
 use Illuminate\Database\QueryException;
@@ -39,15 +39,11 @@ class VoteController extends Controller
 
         $user = $request->user();
 
-        $isPresent = Attendance::query()
-            ->where('election_id', $election->id)
-            ->where('user_id', $user->id)
-            ->where('status', 'present')
-            ->exists();
+        $isPresent = $user->attendance_status === 'present';
 
         if (! $isPresent) {
             return response()->json([
-                'message' => 'You are not marked present for this election.',
+                'message' => "{$user->name} is not marked present for this election. Attendance first to vote.",
             ], 403);
         }
 
@@ -115,7 +111,7 @@ class VoteController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($data, $election, $voterHash): void {
+            DB::transaction(function () use ($data, $election, $voterHash, $user): void {
                 $lockedElection = Election::query()
                     ->whereKey($election->id)
                     ->lockForUpdate()
@@ -144,6 +140,12 @@ class VoteController extends Controller
                         'voter_hash' => $voterHash,
                     ]);
                 }
+
+                User::query()
+                    ->whereKey($user->id)
+                    ->update([
+                        'already_voted' => true,
+                    ]);
             });
         } catch (ValidationException $exception) {
             throw $exception;
