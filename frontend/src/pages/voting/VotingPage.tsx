@@ -311,12 +311,12 @@ export function VotingPage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleCancel = async () => {
-    try {
-      await logout();
-    } finally {
-      navigate(`/access/${electionId}`, { replace: true });
-    }
+  const handleCancel = () => {
+    // Return voter to QR access screen immediately; logout can complete in background.
+    navigate(`/access/${electionId}`, { replace: true });
+    void logout().catch(() => {
+      // Ignore logout errors because navigation target is public access page.
+    });
   };
 
   if (loading) {
@@ -412,7 +412,7 @@ export function VotingPage() {
             <Button onClick={handleVoteAttempt} disabled={submitting || election.status !== "open"}>
               {submitting ? "Submitting..." : "Submit Vote"}
             </Button>
-            <Button variant="outline" onClick={() => void handleCancel()}>
+            <Button variant="outline" onClick={handleCancel}>
               Cancel
             </Button>
           </div>

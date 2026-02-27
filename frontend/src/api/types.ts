@@ -107,6 +107,7 @@ export interface DashboardOverview {
     end: string;
   };
   total_votes_today: number;
+  total_voters_voted_today?: number;
   total_voters: number;
   voters_participated_today: number;
   participation_percentage_today: number;

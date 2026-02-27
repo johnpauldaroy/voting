@@ -35,7 +35,7 @@ class DashboardController extends Controller
             $hourlyBuckets[$label] = 0;
         }
 
-        $totalVotesToday = 0;
+        $totalVotersVotedToday = 0;
         $votersParticipatedToday = 0;
         $totalPositions = 0;
         $totalCandidates = 0;
@@ -45,21 +45,34 @@ class DashboardController extends Controller
 
             $votesToday = (clone $votesQuery)
                 ->whereBetween('created_at', [$todayStart, $todayEnd])
-                ->get(['created_at']);
+                ->get(['created_at', 'voter_hash']);
 
-            $totalVotesToday = $votesToday->count();
+            $uniqueVotersToday = [];
+            $voterHashesByHour = [];
 
             foreach ($votesToday as $vote) {
-                $hourLabel = optional($vote->created_at)->format('H:00');
-                if ($hourLabel !== null && array_key_exists($hourLabel, $hourlyBuckets)) {
-                    $hourlyBuckets[$hourLabel]++;
+                $voterHash = (string) $vote->voter_hash;
+                if ($voterHash === '') {
+                    continue;
                 }
+
+                $uniqueVotersToday[$voterHash] = true;
+
+                $hourLabel = optional($vote->created_at)->format('H:00');
+                if ($hourLabel === null || ! array_key_exists($hourLabel, $hourlyBuckets)) {
+                    continue;
+                }
+
+                $voterHashesByHour[$hourLabel] ??= [];
+                $voterHashesByHour[$hourLabel][$voterHash] = true;
             }
 
-            $votersParticipatedToday = (clone $votesQuery)
-                ->whereBetween('created_at', [$todayStart, $todayEnd])
-                ->distinct('voter_hash')
-                ->count('voter_hash');
+            foreach ($voterHashesByHour as $hourLabel => $voterHashes) {
+                $hourlyBuckets[$hourLabel] = count($voterHashes);
+            }
+
+            $totalVotersVotedToday = count($uniqueVotersToday);
+            $votersParticipatedToday = $totalVotersVotedToday;
 
             $totalPositions = Position::query()
                 ->whereIn('election_id', $electionIds->all())
@@ -94,7 +107,8 @@ class DashboardController extends Controller
                     'start' => $todayStart->toIso8601String(),
                     'end' => $todayEnd->toIso8601String(),
                 ],
-                'total_votes_today' => $totalVotesToday,
+                'total_votes_today' => $totalVotersVotedToday,
+                'total_voters_voted_today' => $totalVotersVotedToday,
                 'total_voters' => $totalVoters,
                 'voters_participated_today' => $votersParticipatedToday,
                 'participation_percentage_today' => $participationPercentageToday,

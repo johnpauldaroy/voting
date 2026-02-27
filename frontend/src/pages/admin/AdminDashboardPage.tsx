@@ -52,13 +52,15 @@ export function AdminDashboardPage() {
     return <p className="text-sm text-muted-foreground">No dashboard data available.</p>;
   }
 
+  const totalVotersVotedToday = overview.total_voters_voted_today ?? overview.voters_participated_today;
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Ballots Submitted By Hour</CardTitle>
+          <CardTitle>Voters Voted By Hour</CardTitle>
           <CardDescription>
-            Date: {overview.time_range.date} | Total today: {overview.total_votes_today} | Peak hour: {peakHour}
+            Date: {overview.time_range.date} | No. of voters voted today: {totalVotersVotedToday} | Peak hour: {peakHour}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -74,7 +76,7 @@ export function AdminDashboardPage() {
                 <CartesianGrid stroke="#d8e5f2" strokeDasharray="3 3" />
                 <XAxis dataKey="hour" tick={{ fill: "#6f7c8f", fontSize: 11 }} />
                 <YAxis allowDecimals={false} tick={{ fill: "#6f7c8f", fontSize: 11 }} />
-                <Tooltip />
+                <Tooltip formatter={(value) => [value, "Voters Voted"]} />
                 <Area
                   type="monotone"
                   dataKey="votes"
