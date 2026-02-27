@@ -7,6 +7,7 @@ use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Resources\UserResource;
+use App\Models\Attendance;
 use App\Models\Election;
 use App\Models\User;
 use App\Models\Vote;
@@ -67,6 +68,9 @@ class AuthController extends Controller
         } elseif ($election->hasEnded()) {
             $canProceed = false;
             $reason = 'Voting window has ended.';
+        } elseif (! $this->isVoterPresentForElection((int) $voter->id, (int) $election->id)) {
+            $canProceed = false;
+            $reason = 'Voter is not marked present for this election.';
         }
 
         return response()->json([
@@ -100,6 +104,7 @@ class AuthController extends Controller
         if ($loginType === 'voter') {
             $voterId = trim((string) $request->input('voter_id'));
             $voterKey = (string) $request->input('voter_key');
+            $electionId = $request->filled('election_id') ? (int) $request->input('election_id') : null;
 
             $voter = User::query()
                 ->where('role', UserRole::VOTER->value)
@@ -117,6 +122,12 @@ class AuthController extends Controller
                 throw ValidationException::withMessages([
                     'voter_id' => ['The provided voter credentials are incorrect.'],
                 ]);
+            }
+
+            if ($electionId && ! $this->isVoterPresentForElection((int) $voter->id, $electionId)) {
+                return response()->json([
+                    'message' => 'Voter is not marked present for this election.',
+                ], 403);
             }
 
             Auth::login($voter, $remember);
@@ -221,5 +232,14 @@ class AuthController extends Controller
         return response()->json([
             'data' => new UserResource($request->user()),
         ]);
+    }
+
+    private function isVoterPresentForElection(int $userId, int $electionId): bool
+    {
+        return Attendance::query()
+            ->where('election_id', $electionId)
+            ->where('user_id', $userId)
+            ->where('status', 'present')
+            ->exists();
     }
 }

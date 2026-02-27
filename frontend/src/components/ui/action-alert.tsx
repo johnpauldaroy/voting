@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
   Info,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,8 @@ interface ActionAlertProps {
   className?: string;
   autoHideMs?: number;
   onAutoHide?: () => void;
+  onClose?: () => void;
+  closeLabel?: string;
 }
 
 const toneConfig: Record<
@@ -49,23 +52,42 @@ const toneConfig: Record<
   },
 };
 
-export function ActionAlert({ tone, title, message, className, autoHideMs, onAutoHide }: ActionAlertProps) {
+export function ActionAlert({
+  tone,
+  title,
+  message,
+  className,
+  autoHideMs = 2000,
+  onAutoHide,
+  onClose,
+  closeLabel = "Close alert",
+}: ActionAlertProps) {
   const config = toneConfig[tone];
   const Icon = config.icon;
+  const [visible, setVisible] = useState(true);
 
   useEffect(() => {
-    if (!autoHideMs || autoHideMs <= 0 || !onAutoHide) {
+    setVisible(true);
+  }, [tone, title, message]);
+
+  useEffect(() => {
+    if (!autoHideMs || autoHideMs <= 0) {
       return;
     }
 
     const timer = window.setTimeout(() => {
-      onAutoHide();
+      setVisible(false);
+      onAutoHide?.();
     }, autoHideMs);
 
     return () => {
       window.clearTimeout(timer);
     };
   }, [autoHideMs, message, onAutoHide, title, tone]);
+
+  if (!visible) {
+    return null;
+  }
 
   return (
     <div
@@ -84,6 +106,17 @@ export function ActionAlert({ tone, title, message, className, autoHideMs, onAut
           </p>
           <p className="mt-2 text-sm font-semibold">{message}</p>
         </div>
+        <button
+          type="button"
+          aria-label={closeLabel}
+          className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-black/10"
+          onClick={() => {
+            setVisible(false);
+            onClose?.();
+          }}
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );

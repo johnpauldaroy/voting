@@ -8,6 +8,7 @@ export interface LoginPayload {
   password?: string;
   voter_id?: string;
   voter_key?: string;
+  election_id?: number;
   remember?: boolean;
 }
 

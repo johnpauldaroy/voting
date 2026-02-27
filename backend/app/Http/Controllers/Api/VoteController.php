@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Vote\StoreVoteRequest;
 use App\Http\Resources\VoteReceiptResource;
+use App\Models\Attendance;
 use App\Models\Election;
 use App\Models\Vote;
 use App\Services\AuditLogger;
@@ -37,6 +38,19 @@ class VoteController extends Controller
         }
 
         $user = $request->user();
+
+        $isPresent = Attendance::query()
+            ->where('election_id', $election->id)
+            ->where('user_id', $user->id)
+            ->where('status', 'present')
+            ->exists();
+
+        if (! $isPresent) {
+            return response()->json([
+                'message' => 'You are not marked present for this election.',
+            ], 403);
+        }
+
         $voterHash = Vote::voterHash($user->id, $election->id);
 
         if (Vote::query()

@@ -143,6 +143,17 @@ export function BallotPage() {
   const toggleStatus = async (election: Election) => {
     const nextStatus: ElectionStatus = election.status === "open" ? "closed" : "open";
 
+    if (nextStatus === "open") {
+      const openValidationMessage = getOpenValidationMessage(election);
+
+      if (openValidationMessage) {
+        setSuccess(null);
+        setError(openValidationMessage);
+        closeActionMenu();
+        return;
+      }
+    }
+
     try {
       setError(null);
       setSuccess(null);
@@ -224,6 +235,27 @@ export function BallotPage() {
     (election: Election) => election.status !== "open" || user?.role === "super_admin",
     [user?.role]
   );
+
+  const getOpenValidationMessage = useCallback((election: Election): string | null => {
+    if (election.positions.length === 0) {
+      return "Election cannot be opened because no positions are configured.";
+    }
+
+    const incompletePosition = election.positions.find(
+      (position) => position.candidates.length < position.max_votes_allowed
+    );
+
+    if (!incompletePosition) {
+      return null;
+    }
+
+    const requiredSlots = incompletePosition.max_votes_allowed;
+    const currentCandidates = incompletePosition.candidates.length;
+    const slotLabel = requiredSlots === 1 ? "slot is" : "slots are";
+    const candidateLabel = requiredSlots === 1 ? "candidate" : "candidates";
+
+    return `${incompletePosition.title} position ${slotLabel} not filled (${currentCandidates}/${requiredSlots} ${candidateLabel}).`;
+  }, []);
 
   const ongoingElectionEditLabel = useCallback(
     (baseLabel: string, election: Election) =>
@@ -370,7 +402,15 @@ export function BallotPage() {
           </Button>
         </div>
 
-        {error ? <ActionAlert tone="error" message={error} /> : null}
+        {error ? (
+          <ActionAlert
+            tone="error"
+            message={error}
+            autoHideMs={3000}
+            onAutoHide={() => setError(null)}
+            onClose={() => setError(null)}
+          />
+        ) : null}
         {success ? <ActionAlert tone="success" message={success} autoHideMs={1000} onAutoHide={() => setSuccess(null)} /> : null}
 
         <Table>
@@ -456,7 +496,9 @@ export function BallotPage() {
                           title={
                             election.status === "open" && user?.role !== "super_admin"
                               ? "Only super admins can modify an open election."
-                              : undefined
+                              : election.status !== "open"
+                                ? getOpenValidationMessage(election) ?? undefined
+                                : undefined
                           }
                           onClick={() => {
                             void toggleStatus(election);

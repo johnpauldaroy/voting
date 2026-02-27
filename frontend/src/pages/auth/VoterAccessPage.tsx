@@ -234,6 +234,7 @@ export function VoterAccessPage() {
           login_type: "voter",
           voter_id: voterId.trim(),
           voter_key: voterKey.trim(),
+          election_id: electionId,
           remember,
         });
 
@@ -415,11 +416,7 @@ export function VoterAccessPage() {
     await loginWithCredentials(values.voter_id, values.voter_key, Boolean(values.remember));
   };
 
-  const canProceedFromPreview = Boolean(
-    scanPreview &&
-      (scanPreview.can_proceed ||
-        (scanPreview.election.status === "open" && scanPreview.voter.is_active && !scanPreview.voter.has_voted))
-  );
+  const canProceedFromPreview = Boolean(scanPreview?.can_proceed);
 
   const electionAccessRemark = (() => {
     if (!scanPreview) {

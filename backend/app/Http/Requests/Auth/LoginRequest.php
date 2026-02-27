@@ -27,6 +27,7 @@ class LoginRequest extends FormRequest
             'password' => ['nullable', 'required_if:login_type,email', 'string', 'min:8', 'max:255'],
             'voter_id' => ['nullable', 'required_if:login_type,voter', 'string', 'max:100'],
             'voter_key' => ['nullable', 'required_if:login_type,voter', 'string', 'max:255'],
+            'election_id' => ['nullable', 'integer', 'exists:elections,id'],
             'remember' => ['sometimes', 'boolean'],
         ];
     }

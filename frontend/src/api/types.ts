@@ -1,5 +1,6 @@
 export type UserRole = "super_admin" | "election_admin" | "voter";
 export type ElectionStatus = "draft" | "open" | "closed";
+export type AttendanceStatus = "present" | "absent";
 
 export interface User {
   id: number;
@@ -48,6 +49,27 @@ export interface Election {
   creator?: Pick<User, "id" | "name" | "email">;
   positions: Position[];
   votes_count?: number;
+}
+
+export interface Attendance {
+  id: number;
+  election_id: number;
+  user_id: number;
+  status: AttendanceStatus;
+  checked_in_at: string | null;
+  source: string;
+  election?: {
+    id: number;
+    title: string;
+  };
+  user?: {
+    id: number;
+    name: string;
+    branch: string | null;
+    voter_id: string | null;
+  };
+  created_at: string;
+  updated_at: string;
 }
 
 export interface VoteSelection {

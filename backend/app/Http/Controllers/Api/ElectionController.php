@@ -158,6 +158,17 @@ class ElectionController extends Controller
                     'message' => 'Election has expired and cannot be opened.',
                 ], 422);
             }
+
+            if ($data['status'] === ElectionStatus::OPEN->value
+                && $election->status !== ElectionStatus::OPEN->value) {
+                $openValidationMessage = $this->getOpenValidationMessage($election);
+
+                if ($openValidationMessage !== null) {
+                    return response()->json([
+                        'message' => $openValidationMessage,
+                    ], 422);
+                }
+            }
         }
 
         if (isset($data['start_datetime']) || isset($data['end_datetime'])) {
@@ -231,5 +242,39 @@ class ElectionController extends Controller
         return response()->json([
             'message' => 'Election deleted successfully.',
         ]);
+    }
+
+    private function getOpenValidationMessage(Election $election): ?string
+    {
+        $positions = $election->positions()
+            ->select(['id', 'title', 'max_votes_allowed'])
+            ->withCount('candidates')
+            ->get();
+
+        if ($positions->isEmpty()) {
+            return 'Election cannot be opened because no positions are configured.';
+        }
+
+        $incompletePosition = $positions->first(
+            fn ($position): bool => $position->candidates_count < $position->max_votes_allowed
+        );
+
+        if (! $incompletePosition) {
+            return null;
+        }
+
+        $requiredSlots = (int) $incompletePosition->max_votes_allowed;
+        $currentCandidates = (int) $incompletePosition->candidates_count;
+        $slotLabel = $requiredSlots === 1 ? 'slot is' : 'slots are';
+        $candidateLabel = $requiredSlots === 1 ? 'candidate' : 'candidates';
+
+        return sprintf(
+            '%s position %s not filled (%d/%d %s).',
+            $incompletePosition->title,
+            $slotLabel,
+            $currentCandidates,
+            $requiredSlots,
+            $candidateLabel
+        );
     }
 }

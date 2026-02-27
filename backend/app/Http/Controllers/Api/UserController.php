@@ -264,9 +264,9 @@ class UserController extends Controller
         return response()->streamDownload(function (): void {
             $handle = fopen('php://output', 'w');
 
-            fputcsv($handle, ['NAME', 'BRANCH', 'EMAIL', 'VOTER ID', 'VOTER KEY', 'IS ACTIVE', 'PASSWORD']);
-            fputcsv($handle, ['Grace Ann', 'Main Office', 'grace@voting.local', 'grace', '1234', '1', 'Password@123']);
-            fputcsv($handle, ['jp', 'North Branch', 'jp@voting.local', 'jp', '1234', '1', 'Password@123']);
+            fputcsv($handle, ['NAME', 'BRANCH', 'EMAIL', 'IS ACTIVE']);
+            fputcsv($handle, ['Grace Ann', 'Main Office', 'grace@voting.local', '1']);
+            fputcsv($handle, ['jp', 'North Branch', 'jp@voting.local', '1']);
 
             fclose($handle);
         }, 'voter_import_template.csv', ['Content-Type' => 'text/csv']);
@@ -294,10 +294,34 @@ class UserController extends Controller
             ], 422);
         }
 
-        $headers = array_map(
-            fn ($header): string => Str::snake(trim((string) preg_replace('/^\xEF\xBB\xBF/', '', (string) $header))),
-            $rows[0]
-        );
+        $headerRowIndex = null;
+        $headers = [];
+
+        foreach ($rows as $index => $rowValues) {
+            $firstCell = strtolower(trim((string) ($rowValues[0] ?? '')));
+
+            // Excel may prepend "sep=," or "sep=;" as the first line.
+            if (count($rowValues) <= 2 && str_starts_with($firstCell, 'sep=')) {
+                continue;
+            }
+
+            $candidateHeaders = array_map(
+                fn ($header): string => $this->normalizeCsvHeader((string) $header),
+                $rowValues
+            );
+
+            if (in_array('name', $candidateHeaders, true) && in_array('email', $candidateHeaders, true)) {
+                $headerRowIndex = $index;
+                $headers = $candidateHeaders;
+                break;
+            }
+        }
+
+        if ($headerRowIndex === null) {
+            return response()->json([
+                'message' => 'CSV must contain NAME and EMAIL columns.',
+            ], 422);
+        }
 
         if (! in_array('name', $headers, true) || ! in_array('email', $headers, true)) {
             return response()->json([
@@ -308,10 +332,9 @@ class UserController extends Controller
         $payloads = [];
         $errors = [];
         $seenEmails = [];
-        $seenVoterIds = [];
 
-        foreach (array_slice($rows, 1) as $index => $rowValues) {
-            $line = $index + 2;
+        foreach (array_slice($rows, $headerRowIndex + 1) as $index => $rowValues) {
+            $line = $headerRowIndex + $index + 2;
             $row = [];
 
             foreach ($headers as $position => $header) {
@@ -325,11 +348,8 @@ class UserController extends Controller
 
             $normalized = [
                 'name' => $row['name'] ?? null,
-                'branch' => $row['branch'] ?: null,
+                'branch' => ($row['branch'] ?? null) ?: null,
                 'email' => isset($row['email']) ? strtolower((string) $row['email']) : null,
-                'voter_id' => $row['voter_id'] ?: null,
-                'voter_key' => $row['voter_key'] ?: null,
-                'password' => $row['password'] ?: null,
             ];
 
             $isActiveParsed = $this->parseBoolean($row['is_active'] ?? null);
@@ -348,9 +368,6 @@ class UserController extends Controller
                 'name' => ['required', 'string', 'max:255'],
                 'branch' => ['nullable', 'string', 'max:255'],
                 'email' => ['required', 'email', 'max:255'],
-                'voter_id' => ['nullable', 'string', 'max:100'],
-                'voter_key' => ['nullable', 'string', 'max:255'],
-                'password' => ['nullable', 'string', 'min:8', 'max:255'],
                 'is_active' => ['required', 'boolean'],
             ]);
 
@@ -374,19 +391,6 @@ class UserController extends Controller
 
             $seenEmails[] = $normalized['email'];
 
-            if ($normalized['voter_id']) {
-                if (in_array($normalized['voter_id'], $seenVoterIds, true)) {
-                    $errors[] = [
-                        'line' => $line,
-                        'message' => 'Duplicate voter_id found within the CSV file.',
-                    ];
-
-                    continue;
-                }
-
-                $seenVoterIds[] = $normalized['voter_id'];
-            }
-
             $existingUser = User::query()->where('email', $normalized['email'])->first();
 
             if ($existingUser && ! $existingUser->isVoter()) {
@@ -396,22 +400,6 @@ class UserController extends Controller
                 ];
 
                 continue;
-            }
-
-            if ($normalized['voter_id']) {
-                $conflict = User::query()
-                    ->where('voter_id', $normalized['voter_id'])
-                    ->where('email', '!=', $normalized['email'])
-                    ->exists();
-
-                if ($conflict) {
-                    $errors[] = [
-                        'line' => $line,
-                        'message' => 'VOTER ID already exists for a different user.',
-                    ];
-
-                    continue;
-                }
             }
 
             $payloads[] = $normalized;
@@ -434,15 +422,11 @@ class UserController extends Controller
                 $attributes = [
                     'name' => $payload['name'],
                     'branch' => $payload['branch'],
-                    'voter_id' => $payload['voter_id'],
-                    'voter_key' => $payload['voter_key'],
                     'role' => 'voter',
                     'is_active' => (bool) $payload['is_active'],
                 ];
 
-                if ($payload['password']) {
-                    $attributes['password'] = $payload['password'];
-                } elseif (! $existingUser) {
+                if (! $existingUser) {
                     $attributes['password'] = 'Password@123';
                 }
 
@@ -465,7 +449,7 @@ class UserController extends Controller
                 }
 
                 if (! $user->voter_key) {
-                    $user->voter_key = str_pad((string) random_int(1000, 9999), 4, '0', STR_PAD_LEFT);
+                    $user->voter_key = $this->generateVoterKeyFromName($user->name);
                     $user->save();
                 }
             }
@@ -594,17 +578,16 @@ class UserController extends Controller
         return response()->streamDownload(function () use ($voters): void {
             $handle = fopen('php://output', 'w');
 
-            fputcsv($handle, ['VOTED?', 'NAME', 'BRANCH', 'VOTER ID', 'VOTER KEY', 'EMAIL', 'STATUS']);
+            fputcsv($handle, ['NAME', 'BRANCH', 'EMAIL', 'IS ACTIVE', 'VOTER KEY', 'VOTER ID']);
 
             foreach ($voters as $voter) {
                 fputcsv($handle, [
-                    $voter->has_voted ? 'YES' : 'NO',
                     $voter->name,
                     $voter->branch,
-                    $voter->voter_id,
-                    $voter->voter_key,
                     $voter->email,
-                    $voter->is_active ? 'ACTIVE' : 'INACTIVE',
+                    $voter->is_active ? '1' : '0',
+                    $voter->voter_key,
+                    $voter->voter_id,
                 ]);
             }
 
@@ -789,20 +772,127 @@ class UserController extends Controller
 
     private function readCsvFile(UploadedFile $file): array
     {
-        $rows = [];
-        $handle = fopen($file->getRealPath(), 'r');
+        $realPath = $file->getRealPath();
+        if (! is_string($realPath) || $realPath === '') {
+            return [];
+        }
 
+        $content = file_get_contents($realPath);
+        if ($content === false) {
+            return [];
+        }
+
+        $normalizedContent = $this->normalizeCsvEncoding($content);
+        $candidateDelimiters = [',', ';', "\t", '|'];
+        $bestRows = [];
+        $bestScore = -1;
+
+        foreach ($candidateDelimiters as $delimiter) {
+            $rows = $this->parseCsvRowsFromContent($normalizedContent, $delimiter);
+            if ($rows === []) {
+                continue;
+            }
+
+            $maxColumns = max(array_map(fn ($row): int => count($row), $rows));
+            $hasNameAndEmailHeader = collect($rows)->contains(function (array $row): bool {
+                $headers = array_map(fn ($header): string => $this->normalizeCsvHeader((string) $header), $row);
+                return in_array('name', $headers, true) && in_array('email', $headers, true);
+            });
+
+            $score = ($hasNameAndEmailHeader ? 1000 : 0) + $maxColumns;
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestRows = $rows;
+            }
+        }
+
+        if ($bestRows !== []) {
+            return $bestRows;
+        }
+
+        return $this->parseCsvRowsFromContent($normalizedContent, ',');
+    }
+
+    private function parseCsvRowsFromContent(string $content, string $delimiter): array
+    {
+        $rows = [];
+        $handle = fopen('php://temp', 'r+');
         if (! $handle) {
             return $rows;
         }
 
-        while (($data = fgetcsv($handle)) !== false) {
+        fwrite($handle, $content);
+        rewind($handle);
+
+        while (($data = fgetcsv($handle, 0, $delimiter)) !== false) {
+            if ($data === [null]) {
+                continue;
+            }
+
             $rows[] = $data;
         }
 
         fclose($handle);
 
         return $rows;
+    }
+
+    private function normalizeCsvEncoding(string $content): string
+    {
+        if (str_starts_with($content, "\xEF\xBB\xBF")) {
+            return substr($content, 3);
+        }
+
+        if (str_starts_with($content, "\xFF\xFE")) {
+            return $this->convertToUtf8($content, 'UTF-16LE');
+        }
+
+        if (str_starts_with($content, "\xFE\xFF")) {
+            return $this->convertToUtf8($content, 'UTF-16BE');
+        }
+
+        if (str_contains($content, "\x00")) {
+            return $this->convertToUtf8($content, 'UTF-16LE');
+        }
+
+        return $content;
+    }
+
+    private function convertToUtf8(string $content, string $fromEncoding): string
+    {
+        if (function_exists('mb_convert_encoding')) {
+            return (string) mb_convert_encoding($content, 'UTF-8', $fromEncoding);
+        }
+
+        if (function_exists('iconv')) {
+            $converted = iconv($fromEncoding, 'UTF-8//IGNORE', $content);
+            if ($converted !== false) {
+                return $converted;
+            }
+        }
+
+        return $content;
+    }
+
+    private function normalizeCsvHeader(string $header): string
+    {
+        $clean = preg_replace('/^\xEF\xBB\xBF/u', '', $header) ?? $header;
+        $clean = str_replace(["\u{00A0}", "\u{FEFF}"], ' ', $clean);
+        $clean = preg_replace('/[\x{200B}-\x{200D}\x{2060}]/u', '', $clean) ?? $clean;
+        $clean = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $clean) ?? $clean;
+        $clean = preg_replace('/\s+/u', ' ', trim($clean)) ?? trim($clean);
+        $snake = Str::snake($clean);
+        $collapsed = strtolower(str_replace('_', '', $snake));
+
+        return match (true) {
+            $collapsed === 'name', $collapsed === 'fullname', $collapsed === 'votername' => 'name',
+            $collapsed === 'email', $collapsed === 'emailaddress', str_starts_with($collapsed, 'email') => 'email',
+            $collapsed === 'isactive', $collapsed === 'active', $collapsed === 'status' => 'is_active',
+            $collapsed === 'branch' => 'branch',
+            $collapsed === 'voterid' => 'voter_id',
+            $collapsed === 'voterkey' => 'voter_key',
+            default => $snake,
+        };
     }
 
     private function parseBoolean(?string $value): ?bool
@@ -822,12 +912,14 @@ class UserController extends Controller
 
     private function generateUniqueVoterId(string $name, int $userId): string
     {
-        $base = Str::of($name)->lower()->replaceMatches('/[^a-z0-9]/', '')->value();
+        $firstName = trim((string) Str::of($name)->before(' '));
+        $base = (string) Str::of($firstName)->replaceMatches('/[^A-Za-z0-9]/', '')->value();
 
         if ($base === '') {
             $base = 'voter'.$userId;
         }
 
+        $base = ucfirst(strtolower($base));
         $candidate = $base;
         $counter = 1;
 
@@ -837,6 +929,25 @@ class UserController extends Controller
         }
 
         return $candidate;
+    }
+
+    private function generateVoterKeyFromName(string $name): string
+    {
+        $parts = collect(preg_split('/\s+/', trim($name)) ?: [])
+            ->map(fn ($part): string => preg_replace('/[^A-Za-z0-9]/', '', (string) $part) ?? '')
+            ->filter()
+            ->values();
+
+        $firstInitial = strtoupper(substr((string) ($parts[0] ?? 'V'), 0, 1));
+        $lastInitial = strtoupper(substr((string) ($parts[count($parts) - 1] ?? $parts[0] ?? 'R'), 0, 1));
+
+        return sprintf(
+            '%s%d%s%d',
+            $firstInitial !== '' ? $firstInitial : 'V',
+            random_int(0, 9),
+            $lastInitial !== '' ? $lastInitial : 'R',
+            random_int(0, 9)
+        );
     }
 
     private function hasVotesInAnyElection(User $user): bool

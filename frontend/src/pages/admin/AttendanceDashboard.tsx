@@ -1,16 +1,53 @@
-import { CalendarCheck2, Clock3, Users } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { CalendarCheck2, UserCheck2, UserX, Users } from "lucide-react";
+import { getAttendances } from "@/api/attendance";
+import { extractErrorMessage } from "@/api/client";
+import { getElections } from "@/api/elections";
+import type { Attendance } from "@/api/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ActionAlert } from "@/components/ui/action-alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-const ATTENDANCE_ROWS = [
-  { id: "VT-001", name: "Juan Dela Cruz", date: "2026-02-27", checkIn: "08:03 AM", status: "Present" },
-  { id: "VT-002", name: "Maria Santos", date: "2026-02-27", checkIn: "08:21 AM", status: "Late" },
-  { id: "VT-003", name: "Carlo Reyes", date: "2026-02-27", checkIn: "-", status: "Absent" },
-  { id: "VT-004", name: "Ana Lopez", date: "2026-02-27", checkIn: "07:56 AM", status: "Present" },
-];
-
 export function AttendanceDashboard() {
+  const [records, setRecords] = useState<Attendance[]>([]);
+  const [summary, setSummary] = useState({ total: 0, present: 0, absent: 0 });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadAttendances = useCallback(async (electionId: number) => {
+    try {
+      setLoading(true);
+      const response = await getAttendances({
+        election_id: electionId,
+        per_page: 200,
+      });
+      setRecords(response.data);
+      setSummary(response.summary);
+      setError(null);
+    } catch (loadError) {
+      setError(extractErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const loadedElections = await getElections();
+
+        if (loadedElections.length > 0) {
+          const defaultElection =
+            loadedElections.find((election) => election.status === "open") ?? loadedElections[0];
+          await loadAttendances(defaultElection.id);
+        }
+      } catch (loadError) {
+        setError(extractErrorMessage(loadError));
+      }
+    })();
+  }, [loadAttendances]);
+
   return (
     <div className="space-y-4">
       <Card>
@@ -23,34 +60,44 @@ export function AttendanceDashboard() {
         </CardHeader>
       </Card>
 
+      {error ? (
+        <ActionAlert
+          tone="error"
+          message={error}
+          autoHideMs={3000}
+          onAutoHide={() => setError(null)}
+          onClose={() => setError(null)}
+        />
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Present Today</CardTitle>
+            <CardTitle className="text-base">Total</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-muted-foreground">
             <Users className="h-4 w-4" />
-            <span>Connect attendance data to display totals.</span>
+            <span className="text-xl font-bold text-foreground">{summary.total}</span>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Late Check-ins</CardTitle>
+            <CardTitle className="text-base">Present</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-muted-foreground">
-            <Clock3 className="h-4 w-4" />
-            <span>Late arrivals summary will appear here.</span>
+            <UserCheck2 className="h-4 w-4" />
+            <span className="text-xl font-bold text-foreground">{summary.present}</span>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Absences</CardTitle>
+            <CardTitle className="text-base">Absent</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-muted-foreground">
-            <CalendarCheck2 className="h-4 w-4" />
-            <span>Daily and historical absences will be shown here.</span>
+            <UserX className="h-4 w-4" />
+            <span className="text-xl font-bold text-foreground">{summary.absent}</span>
           </CardContent>
         </Card>
       </div>
@@ -58,7 +105,7 @@ export function AttendanceDashboard() {
       <Card>
         <CardHeader>
           <CardTitle>Recent Attendance</CardTitle>
-          <CardDescription>Latest attendance records for today.</CardDescription>
+          <CardDescription>Attendance records for the selected election.</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -66,29 +113,59 @@ export function AttendanceDashboard() {
               <TableRow>
                 <TableHead>Voter ID</TableHead>
                 <TableHead>Name</TableHead>
-                <TableHead>Date</TableHead>
+                <TableHead>Branch</TableHead>
                 <TableHead>Check-in</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Source</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {ATTENDANCE_ROWS.map((row) => (
+              {loading && records.length === 0
+                ? Array.from({ length: 5 }).map((_, index) => (
+                    <TableRow key={`attendance-skeleton-${index}`}>
+                      <TableCell>
+                        <div className="h-3 w-24 animate-pulse rounded bg-secondary" />
+                      </TableCell>
+                      <TableCell>
+                        <div className="h-3 w-40 animate-pulse rounded bg-secondary" />
+                      </TableCell>
+                      <TableCell>
+                        <div className="h-3 w-28 animate-pulse rounded bg-secondary" />
+                      </TableCell>
+                      <TableCell>
+                        <div className="h-3 w-32 animate-pulse rounded bg-secondary" />
+                      </TableCell>
+                      <TableCell>
+                        <div className="h-6 w-20 animate-pulse rounded-full bg-secondary" />
+                      </TableCell>
+                      <TableCell>
+                        <div className="h-3 w-16 animate-pulse rounded bg-secondary" />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                : records.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.id}</TableCell>
-                  <TableCell>{row.name}</TableCell>
-                  <TableCell>{row.date}</TableCell>
-                  <TableCell>{row.checkIn}</TableCell>
+                  <TableCell className="font-medium">{row.user?.voter_id ?? "-"}</TableCell>
+                  <TableCell>{row.user?.name ?? "-"}</TableCell>
+                  <TableCell>{row.user?.branch ?? "-"}</TableCell>
+                  <TableCell>{row.checked_in_at ? new Date(row.checked_in_at).toLocaleString() : "-"}</TableCell>
                   <TableCell>
-                    {row.status === "Present" ? (
+                    {row.status === "present" ? (
                       <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Present</Badge>
-                    ) : row.status === "Late" ? (
-                      <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">Late</Badge>
                     ) : (
                       <Badge variant="secondary">Absent</Badge>
                     )}
                   </TableCell>
+                  <TableCell className="capitalize">{row.source}</TableCell>
                 </TableRow>
-              ))}
+                  ))}
+              {!loading && records.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    No attendance records found.
+                  </TableCell>
+                </TableRow>
+              ) : null}
             </TableBody>
           </Table>
         </CardContent>

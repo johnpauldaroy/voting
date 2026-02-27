@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuditLogController;
+use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CandidateController;
 use App\Http\Controllers\Api\DashboardController;
@@ -34,6 +35,9 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('/elections/{election}/candidates', [CandidateController::class, 'store']);
         Route::patch('/elections/{election}/candidates/{candidate}', [CandidateController::class, 'update']);
         Route::delete('/elections/{election}/candidates/{candidate}', [CandidateController::class, 'destroy']);
+        Route::get('/attendances', [AttendanceController::class, 'index']);
+        Route::post('/attendances', [AttendanceController::class, 'store']);
+        Route::post('/attendances/import', [AttendanceController::class, 'import']);
         Route::get('/voters', [UserController::class, 'voters']);
         Route::post('/voters', [UserController::class, 'storeVoter']);
         Route::patch('/voters/{user}', [UserController::class, 'updateVoter']);
