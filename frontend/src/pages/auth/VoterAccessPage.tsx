@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, KeyRound, QrCode, UserRound } from "lucide-react";
+import { Camera, KeyRound, QrCode, Upload, UserRound } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -179,8 +179,10 @@ export function VoterAccessPage() {
     (VoterAccessPreviewResponse & { voter_key: string }) | null
   >(null);
   const [previewingScan, setPreviewingScan] = useState(false);
+  const [uploadingQr, setUploadingQr] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const qrUploadInputRef = useRef<HTMLInputElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const zxingControlsRef = useRef<IScannerControls | null>(null);
   const scanHandledRef = useRef(false);
@@ -273,6 +275,90 @@ export function VoterAccessPage() {
     setScanOpen(true);
   }, []);
 
+  const handleDecodedQrValue = useCallback(
+    async (rawValue: string) => {
+      if (scanHandledRef.current) {
+        return;
+      }
+
+      const parsed = parseVoterQrPayload(rawValue);
+      if (!parsed) {
+        setScanError("QR detected but format is invalid. Keep the code steady and try again.");
+        return;
+      }
+
+      scanHandledRef.current = true;
+      stopScanner();
+      setScanHint("QR detected. Loading voter information...");
+      setScanError(null);
+      setPreviewingScan(true);
+
+      try {
+        const preview = await previewVoterAccess({
+          election_id: electionId,
+          voter_id: parsed.voter_id,
+          voter_key: parsed.voter_key,
+        });
+
+        setValue("voter_id", parsed.voter_id, { shouldValidate: true, shouldDirty: true });
+        setValue("voter_key", parsed.voter_key, { shouldValidate: true, shouldDirty: true });
+        setScanOpen(false);
+        setScanPreview({
+          ...preview,
+          voter_key: parsed.voter_key,
+        });
+      } catch (previewError) {
+        scanHandledRef.current = false;
+        setScanError(previewError instanceof Error ? previewError.message : "Unable to validate scanned QR.");
+        setManualMode(true);
+      } finally {
+        setPreviewingScan(false);
+      }
+    },
+    [electionId, setValue, stopScanner]
+  );
+
+  const handleUploadQrFile = useCallback(
+    async (file: File) => {
+      if (!file.type.startsWith("image/")) {
+        setScanError("Please upload an image file containing a QR code.");
+        return;
+      }
+
+      if (scanHandledRef.current) {
+        return;
+      }
+
+      const imageUrl = URL.createObjectURL(file);
+      setUploadingQr(true);
+      setScanError(null);
+      setScanHint("Reading uploaded QR image...");
+
+      try {
+        const { BrowserQRCodeReader } = await import("@zxing/browser");
+        const reader = new BrowserQRCodeReader();
+        const result = await reader.decodeFromImageUrl(imageUrl);
+        const rawValue = result?.getText()?.trim();
+
+        if (!rawValue) {
+          setScanError("No QR data found in uploaded image.");
+          return;
+        }
+
+        await handleDecodedQrValue(rawValue);
+      } catch {
+        setScanError("Unable to read QR from uploaded image. Try a clearer QR photo.");
+      } finally {
+        URL.revokeObjectURL(imageUrl);
+        setUploadingQr(false);
+        if (!scanHandledRef.current) {
+          setScanHint(scanOpen ? "Scanning QR code..." : "Allow camera access and point to voter QR code.");
+        }
+      }
+    },
+    [handleDecodedQrValue, scanOpen]
+  );
+
   useEffect(() => {
     return () => {
       stopScanner();
@@ -350,41 +436,7 @@ export function VoterAccessPage() {
               return;
             }
 
-            const parsed = parseVoterQrPayload(raw);
-            if (!parsed) {
-              setScanError("QR detected but format is invalid. Keep the code steady and try again.");
-              return;
-            }
-
-            scanHandledRef.current = true;
-            stopScanner();
-            setScanHint("QR detected. Loading voter information...");
-            setScanError(null);
-            setPreviewingScan(true);
-
-            void (async () => {
-              try {
-                const preview = await previewVoterAccess({
-                  election_id: electionId,
-                  voter_id: parsed.voter_id,
-                  voter_key: parsed.voter_key,
-                });
-
-                setValue("voter_id", parsed.voter_id, { shouldValidate: true, shouldDirty: true });
-                setValue("voter_key", parsed.voter_key, { shouldValidate: true, shouldDirty: true });
-                setScanOpen(false);
-                setScanPreview({
-                  ...preview,
-                  voter_key: parsed.voter_key,
-                });
-              } catch (previewError) {
-                scanHandledRef.current = false;
-                setScanError(previewError instanceof Error ? previewError.message : "Unable to validate scanned QR.");
-                setManualMode(true);
-              } finally {
-                setPreviewingScan(false);
-              }
-            })();
+            void handleDecodedQrValue(raw);
           });
 
         if (cancelled) {
@@ -410,7 +462,7 @@ export function VoterAccessPage() {
       cancelled = true;
       stopScanner();
     };
-  }, [electionId, loginWithCredentials, scanOpen, setValue, stopScanner]);
+  }, [handleDecodedQrValue, scanOpen, stopScanner]);
 
   const onSubmit = async (values: AccessFormData) => {
     await loginWithCredentials(values.voter_id, values.voter_key, Boolean(values.remember));
@@ -656,6 +708,21 @@ export function VoterAccessPage() {
             <AlertDialogDescription>{scanHint}</AlertDialogDescription>
           </AlertDialogHeader>
 
+          <input
+            ref={qrUploadInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                void handleUploadQrFile(file);
+              }
+
+              event.target.value = "";
+            }}
+          />
+
           <div className="space-y-3">
             <div className="overflow-hidden rounded-lg border bg-black/90">
               <video ref={videoRef} className="h-56 w-full object-cover" autoPlay muted playsInline />
@@ -666,6 +733,17 @@ export function VoterAccessPage() {
           </div>
 
           <AlertDialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={uploadingQr || previewingScan}
+              onClick={() => {
+                qrUploadInputRef.current?.click();
+              }}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              {uploadingQr ? "Uploading..." : "Upload QR"}
+            </Button>
             <Button
               type="button"
               variant="outline"

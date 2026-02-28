@@ -74,3 +74,58 @@ export async function importAttendances(file: File, electionId?: number) {
 
   return response.data;
 }
+
+function escapeCsvValue(value: string) {
+  if (/[",\r\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+
+  return value;
+}
+
+function downloadCsvBlob(blobData: BlobPart, fileName: string) {
+  const blob = new Blob([blobData], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export async function exportPresentAttendancesCsv(electionId?: number) {
+  const firstPage = await getAttendances({
+    election_id: electionId,
+    status: "present",
+    page: 1,
+    per_page: 200,
+  });
+
+  const allRows: Attendance[] = [...firstPage.data];
+  for (let page = 2; page <= firstPage.meta.last_page; page += 1) {
+    const nextPage = await getAttendances({
+      election_id: electionId,
+      status: "present",
+      page,
+      per_page: 200,
+    });
+    allRows.push(...nextPage.data);
+  }
+
+  const header = ["Name", "Branch", "Voter ID"];
+  const body = allRows.map((row) => [
+    row.user?.name ?? "",
+    row.user?.branch ?? "",
+    row.user?.voter_id ?? "",
+  ]);
+
+  const csv = [header, ...body]
+    .map((line) => line.map((value) => escapeCsvValue(value)).join(","))
+    .join("\r\n");
+
+  downloadCsvBlob(csv, electionId ? `attendance_present_election_${electionId}.csv` : "attendance_present.csv");
+
+  return allRows.length;
+}

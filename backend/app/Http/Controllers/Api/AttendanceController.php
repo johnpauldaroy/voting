@@ -127,7 +127,7 @@ class AttendanceController extends Controller
 
         return response()->json([
             'message' => $status === AttendanceStatus::PRESENT->value
-                ? "{$voter->name} not present in the attendance if scanned"
+                ? "{$voter->name} is now marked as present in attendance."
                 : "Attendance updated for {$voter->name}",
             'data' => $this->toAttendanceRow($voter->fresh(), $electionId, $electionTitle, 'manual', $checkedInAt),
         ], 201);

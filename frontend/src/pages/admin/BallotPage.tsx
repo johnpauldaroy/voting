@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
+import axios from "axios";
 import {
   Ellipsis,
   Eye,
@@ -35,7 +36,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 export function BallotPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [elections, setElections] = useState<Election[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +44,7 @@ export function BallotPage() {
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [electionToDelete, setElectionToDelete] = useState<Election | null>(null);
+  const [electionToClose, setElectionToClose] = useState<Election | null>(null);
   const [openActionMenuId, setOpenActionMenuId] = useState<number | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
 
@@ -167,7 +169,12 @@ export function BallotPage() {
       );
     } catch (statusError) {
       setSuccess(null);
-      setError(extractErrorMessage(statusError));
+      if (axios.isAxiosError(statusError) && statusError.response?.status === 403) {
+        await refreshUser();
+        setError("You are not allowed to perform this action. Please sign in with an authorized admin account.");
+      } else {
+        setError(extractErrorMessage(statusError));
+      }
     } finally {
       setUpdatingId(null);
       closeActionMenu();
@@ -192,6 +199,16 @@ export function BallotPage() {
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const confirmCloseElection = async () => {
+    if (!electionToClose) {
+      return;
+    }
+
+    const targetElection = electionToClose;
+    setElectionToClose(null);
+    await toggleStatus(targetElection);
   };
 
   const handleToggleActionMenu = (event: ReactMouseEvent<HTMLButtonElement>, electionId: number) => {
@@ -501,6 +518,11 @@ export function BallotPage() {
                                 : undefined
                           }
                           onClick={() => {
+                            if (election.status === "open") {
+                              setElectionToClose(election);
+                              return;
+                            }
+
                             void toggleStatus(election);
                           }}
                         >
@@ -545,6 +567,38 @@ export function BallotPage() {
           </TableBody>
         </Table>
       </CardContent>
+
+      <AlertDialog
+        open={Boolean(electionToClose)}
+        onOpenChange={(open) => {
+          if (!open && updatingId === null) {
+            setElectionToClose(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close Election</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure to close the election{" "}
+              <span className="font-semibold text-foreground">&quot;{electionToClose?.title}&quot;</span>?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={updatingId !== null}>No</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={updatingId !== null}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmCloseElection();
+              }}
+            >
+              {updatingId !== null ? "Closing..." : "Yes"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={Boolean(electionToDelete)}

@@ -68,7 +68,10 @@ export function AppRouter() {
             <Route element={<RoleRoute roles={["super_admin", "election_admin"]} />}>
               <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
-              <Route path="/admin/attendance" element={<AttendanceDashboard />} />
+              <Route path="/admin/attendance" element={<AttendanceDashboard view="attendance" />} />
+              <Route path="/admin/attendance/records" element={<AttendanceDashboard view="records" />} />
+              <Route path="/admin/attendance/export" element={<Navigate to="/admin/attendance/records" replace />} />
+              <Route path="/admin/attendance/scanner" element={<Navigate to="/admin/attendance" replace />} />
               <Route path="/admin/voters" element={<VotersPage />} />
               <Route path="/admin/ballot" element={<BallotPage />} />
               <Route path="/admin/settings" element={<SettingsPage />} />

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   CalendarCheck2,
+  ChevronDown,
   ChevronRight,
   LayoutDashboard,
   LogOut,
@@ -23,12 +24,24 @@ interface NavItem {
   path: string;
   roles: UserRole[];
   icon: LucideIcon;
+  children?: Array<{
+    label: string;
+    path: string;
+  }>;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Ballot", path: "/elections/active", roles: ["voter"], icon: Vote },
   { label: "Dashboard", path: "/admin/dashboard", roles: ["super_admin", "election_admin"], icon: LayoutDashboard },
-  { label: "Attendance", path: "/admin/attendance", roles: ["super_admin", "election_admin"], icon: CalendarCheck2 },
+  {
+    label: "Attendance",
+    path: "/admin/attendance",
+    roles: ["super_admin", "election_admin"],
+    icon: CalendarCheck2,
+    children: [
+      { label: "Attendance Records", path: "/admin/attendance/records" },
+    ],
+  },
   { label: "Voters", path: "/admin/voters", roles: ["super_admin", "election_admin"], icon: Users },
   { label: "Ballot", path: "/admin/ballot", roles: ["super_admin", "election_admin"], icon: Vote },
   { label: "Settings", path: "/admin/settings", roles: ["super_admin", "election_admin"], icon: Settings },
@@ -44,6 +57,7 @@ export function DashboardLayout() {
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
+  const [expandedSubmenus, setExpandedSubmenus] = useState<Record<string, boolean>>({});
 
   if (!user) {
     return null;
@@ -51,11 +65,37 @@ export function DashboardLayout() {
 
   const homePath = user.role === "voter" ? "/elections/active" : "/admin/dashboard";
   const visibleNav = NAV_ITEMS.filter((item) => item.roles.includes(user.role));
+  const visibleLeafNav = visibleNav.flatMap((item) =>
+    item.children && item.children.length > 0
+      ? [{ label: item.label, path: item.path }, ...item.children.map((child) => ({ label: child.label, path: child.path }))]
+      : [{ label: item.label, path: item.path }]
+  );
 
-  const exact = visibleNav.find((item) => item.path === location.pathname);
-  const nested = visibleNav.find((item) => location.pathname.startsWith(item.path));
+  const exact = visibleLeafNav.find((item) => item.path === location.pathname);
+  const nested = visibleLeafNav.find((item) => location.pathname.startsWith(item.path));
   const pageTitle = exact?.label ?? nested?.label ?? "Dashboard";
   const isVotingOnlyRoute = /^\/voting\/\d+$/.test(location.pathname);
+
+  useEffect(() => {
+    const activeParent = visibleNav.find(
+      (item) => item.children && item.children.length > 0 && location.pathname.startsWith(item.path)
+    );
+
+    if (!activeParent) {
+      return;
+    }
+
+    setExpandedSubmenus((current) => {
+      if (Object.prototype.hasOwnProperty.call(current, activeParent.path)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [activeParent.path]: true,
+      };
+    });
+  }, [location.pathname, visibleNav]);
 
   const handleLogout = async () => {
     await logout();
@@ -126,6 +166,74 @@ export function DashboardLayout() {
             <nav className="space-y-1">
               {visibleNav.map((item, index) => {
                 const Icon = item.icon;
+                const hasChildren = Boolean(item.children && item.children.length > 0);
+                const isParentActive = location.pathname.startsWith(item.path);
+                const isExpanded = hasChildren
+                  ? (Object.prototype.hasOwnProperty.call(expandedSubmenus, item.path)
+                      ? expandedSubmenus[item.path]
+                      : isParentActive)
+                  : false;
+
+                if (hasChildren) {
+                  return (
+                    <div key={item.path} className="space-y-1">
+                      <button
+                        type="button"
+                        title={desktopSidebarCollapsed ? item.label : undefined}
+                        onClick={() => {
+                          if (desktopSidebarCollapsed) {
+                            void navigate(item.path);
+                            setMobileSidebarOpen(false);
+                            return;
+                          }
+
+                          setExpandedSubmenus((current) => ({
+                            ...current,
+                            [item.path]: !isExpanded,
+                          }));
+
+                          if (!isParentActive) {
+                            void navigate(item.path);
+                          }
+                        }}
+                        className={`group flex w-full items-center rounded-[9px] px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
+                          isParentActive
+                            ? "bg-primary !text-primary-foreground shadow-sm hover:bg-primary/95 hover:!text-primary-foreground"
+                            : "!text-foreground hover:bg-secondary hover:!text-primary"
+                        } ${desktopSidebarCollapsed ? "md:justify-center md:px-2" : "justify-between"} ${index < 2 ? "animate-slide-in-left" : ""}`}
+                      >
+                        <span className="inline-flex items-center gap-2.5">
+                          <Icon className="h-4 w-4" />
+                          <span className={desktopSidebarCollapsed ? "md:hidden" : ""}>{item.label}</span>
+                        </span>
+                        {desktopSidebarCollapsed ? null : (
+                          <ChevronDown
+                            className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : "rotate-0"}`}
+                          />
+                        )}
+                      </button>
+
+                      {!desktopSidebarCollapsed && isExpanded ? (
+                        <div className="ml-5 space-y-1 border-l border-border/70 pl-3">
+                          {item.children?.map((child) => (
+                            <NavLink
+                              key={child.path}
+                              to={child.path}
+                              onClick={() => setMobileSidebarOpen(false)}
+                              className={({ isActive }) =>
+                                `block rounded-[8px] px-3 py-2 text-sm font-medium transition-all ${
+                                  isActive ? "bg-secondary text-primary" : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+                                }`
+                              }
+                            >
+                              {child.label}
+                            </NavLink>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }
 
                 return (
                   <NavLink
