@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useVoterImport } from "@/hooks/useVoterImport";
+import { buildVoterQrCardBlob, buildVoterQrCardPng, getStoredVoterCardTemplateLayout } from "@/lib/voterCardTemplate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -96,120 +97,12 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Unable to render QR image."));
-    image.src = src;
-  });
-}
-
-function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error("Unable to generate QR card image."));
-        return;
-      }
-
-      resolve(blob);
-    }, "image/png");
-  });
-}
-
-async function buildVoterQrCardCanvas(options: {
-  qrDataUrl: string;
-  voterName: string;
-  branch: string;
-}) {
-  const { qrDataUrl, voterName, branch } = options;
-  const canvas = document.createElement("canvas");
-  canvas.width = 1200;
-  canvas.height = 760;
-
-  const context = canvas.getContext("2d");
-  if (!context) {
-    throw new Error("Unable to prepare QR card canvas.");
-  }
-
-  context.fillStyle = "#f3f4f6";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-
-  context.fillStyle = "#047857";
-  context.fillRect(0, 0, canvas.width, 108);
-
-  context.fillStyle = "#ffffff";
-  context.font = "700 52px Segoe UI, Arial, sans-serif";
-  context.fillText("ID Cards With QR Codes", 88, 72);
-
-  const cardX = 160;
-  const cardY = 170;
-  const cardWidth = 880;
-  const cardHeight = 470;
-  const radius = 56;
-
-  context.save();
-  context.beginPath();
-  context.moveTo(cardX + radius, cardY);
-  context.lineTo(cardX + cardWidth - radius, cardY);
-  context.quadraticCurveTo(cardX + cardWidth, cardY, cardX + cardWidth, cardY + radius);
-  context.lineTo(cardX + cardWidth, cardY + cardHeight - radius);
-  context.quadraticCurveTo(cardX + cardWidth, cardY + cardHeight, cardX + cardWidth - radius, cardY + cardHeight);
-  context.lineTo(cardX + radius, cardY + cardHeight);
-  context.quadraticCurveTo(cardX, cardY + cardHeight, cardX, cardY + cardHeight - radius);
-  context.lineTo(cardX, cardY + radius);
-  context.quadraticCurveTo(cardX, cardY, cardX + radius, cardY);
-  context.closePath();
-  context.fillStyle = "#ffffff";
-  context.fill();
-  context.lineWidth = 4;
-  context.strokeStyle = "#15803d";
-  context.stroke();
-  context.restore();
-
-  const qrImage = await loadImage(qrDataUrl);
-  context.imageSmoothingEnabled = false;
-  context.drawImage(qrImage, cardX + 70, cardY + 110, 280, 280);
-
-  context.fillStyle = "#111827";
-  context.font = "700 52px Segoe UI, Arial, sans-serif";
-  context.fillText(voterName, cardX + 420, cardY + 210);
-
-  context.fillStyle = "#334155";
-  context.font = "500 42px Segoe UI, Arial, sans-serif";
-  context.fillText(branch, cardX + 420, cardY + 295);
-
-  context.fillStyle = "#6b7280";
-  context.font = "400 30px Segoe UI, Arial, sans-serif";
-  context.fillText("Coop Vote", cardX + 420, cardY + 370);
-
-  return canvas;
-}
-
-async function buildVoterQrCardPng(options: {
-  qrDataUrl: string;
-  voterName: string;
-  branch: string;
-}) {
-  const canvas = await buildVoterQrCardCanvas(options);
-  return canvas.toDataURL("image/png");
-}
-
-async function buildVoterQrCardBlob(options: {
-  qrDataUrl: string;
-  voterName: string;
-  branch: string;
-}) {
-  const canvas = await buildVoterQrCardCanvas(options);
-  return canvasToPngBlob(canvas);
-}
-
 async function buildVoterQrCardDataUrl(options: {
   voterId: string;
   voterKey: string;
   voterName: string;
   branch: string;
+  layout?: Parameters<typeof buildVoterQrCardPng>[0]["layout"];
 }) {
   const payload = buildVoterQrPayload(options.voterId, options.voterKey);
   const qrDataUrl = await QRCode.toDataURL(payload, {
@@ -226,6 +119,7 @@ async function buildVoterQrCardDataUrl(options: {
     qrDataUrl,
     voterName: options.voterName,
     branch: options.branch,
+    layout: options.layout,
   });
 }
 
@@ -447,6 +341,7 @@ export function VotersPage() {
       setExportQrProgress(null);
       setError(null);
       setSuccess(null);
+      const templateLayout = getStoredVoterCardTemplateLayout();
 
       const allVoters = await fetchAllVotersForQr();
       const exportableVoters = allVoters.filter((voter) => voter.voter_id && voter.voter_key);
@@ -481,6 +376,7 @@ export function VotersPage() {
               qrDataUrl,
               voterName: voter.name,
               branch,
+              layout: templateLayout,
             });
             const absoluteIndex = batchStart + batchIndex;
             const fileName = `${String(absoluteIndex + 1).padStart(3, "0")}_${buildVoterCardFileName(voter)}`;
@@ -545,11 +441,13 @@ export function VotersPage() {
 
     try {
       const branch = voter.branch?.trim() ? voter.branch.trim() : "N/A";
+      const templateLayout = getStoredVoterCardTemplateLayout();
       const cardDataUrl = await buildVoterQrCardDataUrl({
         voterId: voter.voter_id,
         voterKey: voter.voter_key,
         voterName: voter.name,
         branch,
+        layout: templateLayout,
       });
 
       setQrCardDataUrl(cardDataUrl);

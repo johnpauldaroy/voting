@@ -45,7 +45,15 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: "Voters", path: "/admin/voters", roles: ["super_admin", "election_admin"], icon: Users },
   { label: "Ballot", path: "/admin/ballot", roles: ["super_admin", "election_admin"], icon: Vote },
-  { label: "Settings", path: "/admin/settings", roles: ["super_admin", "election_admin"], icon: Settings },
+  {
+    label: "Settings",
+    path: "/admin/settings",
+    roles: ["super_admin", "election_admin"],
+    icon: Settings,
+    children: [
+      { label: "ID Template", path: "/admin/settings/id-template" },
+    ],
+  },
 ];
 
 function roleLabel(role: UserRole) {

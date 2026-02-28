@@ -14,6 +14,7 @@ import { AdminDashboardPage } from "@/pages/admin/AdminDashboardPage";
 import { VotersPage } from "@/pages/admin/VotersPage";
 import { BallotPage } from "@/pages/admin/BallotPage";
 import { SettingsPage } from "@/pages/admin/SettingsPage";
+import { IDTemplatePage } from "@/pages/admin/IDTemplatePage";
 import { AttendanceDashboard } from "@/pages/admin/AttendanceDashboard";
 import { CreateElectionPage } from "@/pages/admin/CreateElectionPage";
 import { EditElectionPage } from "@/pages/admin/EditElectionPage";
@@ -77,6 +78,7 @@ export function AppRouter() {
               <Route path="/admin/voters" element={<VotersPage />} />
               <Route path="/admin/ballot" element={<BallotPage />} />
               <Route path="/admin/settings" element={<SettingsPage />} />
+              <Route path="/admin/settings/id-template" element={<IDTemplatePage />} />
               <Route path="/admin/elections/create" element={<CreateElectionPage />} />
               <Route path="/admin/elections/:id/edit" element={<EditElectionPage />} />
               <Route path="/admin/elections/:id/positions" element={<ManagePositionsPage />} />

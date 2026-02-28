@@ -5,7 +5,7 @@ import { exportPresentAttendancesCsv, getAttendances, upsertAttendance } from "@
 import { extractErrorMessage } from "@/api/client";
 import { getElections } from "@/api/elections";
 import { getVoters } from "@/api/users";
-import type { Attendance, ElectionStatus, User, UserRole } from "@/api/types";
+import type { Attendance, ElectionStatus, PaginationMeta, User, UserRole } from "@/api/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ActionAlert } from "@/components/ui/action-alert";
@@ -37,6 +37,8 @@ type AttendanceView = "attendance" | "records";
 interface AttendanceDashboardProps {
   view?: AttendanceView;
 }
+
+const ATTENDANCE_PER_PAGE = 10;
 
 function parseVoterIdFromQr(rawValue: string): string | null {
   const normalized = rawValue
@@ -94,6 +96,8 @@ function formatUserRole(role: UserRole): string {
 
 export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboardProps) {
   const [records, setRecords] = useState<Attendance[]>([]);
+  const [recordsMeta, setRecordsMeta] = useState<PaginationMeta | null>(null);
+  const [recordsPage, setRecordsPage] = useState(1);
   const [summary, setSummary] = useState({ total: 0, present: 0, absent: 0 });
   const [loading, setLoading] = useState(false);
   const [activeElectionId, setActiveElectionId] = useState<number | null>(null);
@@ -125,14 +129,17 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
   const scanBusyRef = useRef(false);
   const lastScannedRef = useRef<{ voterId: string; at: number } | null>(null);
 
-  const loadAttendances = useCallback(async (electionId: number) => {
+  const loadAttendances = useCallback(async (electionId: number, page = 1) => {
     try {
       setLoading(true);
       const response = await getAttendances({
         election_id: electionId,
-        per_page: 200,
+        page,
+        per_page: ATTENDANCE_PER_PAGE,
       });
       setRecords(response.data);
+      setRecordsMeta(response.meta);
+      setRecordsPage(response.meta.current_page);
       setSummary(response.summary);
     } catch (loadError) {
       setNotice({
@@ -204,7 +211,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           voterId,
           at: Date.now(),
         });
-        await loadAttendances(activeElectionId);
+        await loadAttendances(activeElectionId, recordsPage);
       } catch (scanSubmitError) {
         const message = extractErrorMessage(scanSubmitError);
         const lowerMessage = message.toLowerCase();
@@ -222,7 +229,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
         });
       }
     },
-    [activeElectionId, loadAttendances]
+    [activeElectionId, loadAttendances, recordsPage]
   );
 
   const handleExportPresent = useCallback(async () => {
@@ -301,7 +308,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
       setAddAttendanceOpen(false);
       setSelectedVoter(null);
       setVoterDropdownOpen(false);
-      await loadAttendances(activeElectionId);
+      await loadAttendances(activeElectionId, recordsPage);
     } catch (addError) {
       const message = extractErrorMessage(addError);
       const lowerMessage = message.toLowerCase();
@@ -313,7 +320,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     } finally {
       setAddingAttendance(false);
     }
-  }, [activeElectionId, loadAttendances, selectedVoter]);
+  }, [activeElectionId, loadAttendances, recordsPage, selectedVoter]);
 
   const openScannerDialog = useCallback(() => {
     setScanOpen(true);
@@ -406,11 +413,13 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           setActiveElectionId(defaultElection.id);
           setActiveElectionLabel(`${defaultElection.title} (#${defaultElection.id})`);
           setActiveElectionStatus(defaultElection.status);
-          await loadAttendances(defaultElection.id);
+          await loadAttendances(defaultElection.id, 1);
         } else {
           setActiveElectionId(null);
           setActiveElectionLabel("No election selected");
           setActiveElectionStatus(null);
+          setRecordsMeta(null);
+          setRecordsPage(1);
         }
       } catch (loadError) {
         setNotice({
@@ -755,6 +764,42 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
               ) : null}
             </TableBody>
           </Table>
+
+          <div className="mt-4 flex items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Page {recordsMeta?.current_page ?? recordsPage} of {recordsMeta?.last_page ?? 1}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!activeElectionId || loading || recordsPage <= 1}
+                onClick={() => {
+                  if (!activeElectionId || recordsPage <= 1) {
+                    return;
+                  }
+                  void loadAttendances(activeElectionId, recordsPage - 1);
+                }}
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!activeElectionId || loading || Boolean(recordsMeta && recordsPage >= recordsMeta.last_page)}
+                onClick={() => {
+                  if (!activeElectionId || (recordsMeta && recordsPage >= recordsMeta.last_page)) {
+                    return;
+                  }
+                  void loadAttendances(activeElectionId, recordsPage + 1);
+                }}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
