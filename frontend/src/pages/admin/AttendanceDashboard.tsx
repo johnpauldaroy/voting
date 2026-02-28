@@ -675,7 +675,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
                 }}
               >
                 <Download className="h-4 w-4" />
-                {exporting ? "Exporting..." : "Export Attendance"}
+                {exporting ? "Exporting..." : "Export Present Attendance"}
               </Button>
             </div>
           ) : (

@@ -130,6 +130,8 @@ function downloadCsvBlob(blobData: BlobPart, fileName: string) {
 }
 
 export async function exportPresentAttendancesCsv(electionId?: number) {
+  const keepPresentRows = (rows: Attendance[]) => rows.filter((row) => row.status === "present");
+
   const firstPage = await getAttendances({
     election_id: electionId,
     status: "present",
@@ -137,7 +139,7 @@ export async function exportPresentAttendancesCsv(electionId?: number) {
     per_page: 200,
   });
 
-  const allRows: Attendance[] = [...firstPage.data];
+  const allRows: Attendance[] = [...keepPresentRows(firstPage.data)];
   for (let page = 2; page <= firstPage.meta.last_page; page += 1) {
     const nextPage = await getAttendances({
       election_id: electionId,
@@ -145,7 +147,7 @@ export async function exportPresentAttendancesCsv(electionId?: number) {
       page,
       per_page: 200,
     });
-    allRows.push(...nextPage.data);
+    allRows.push(...keepPresentRows(nextPage.data));
   }
 
   const header = ["Name", "Branch", "Voter ID"];
