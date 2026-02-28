@@ -10,7 +10,6 @@ import {
   exportVoterLogs,
   exportVoters,
   getVoters,
-  importVoters,
   updateVoter,
 } from "@/api/users";
 import { extractErrorMessage } from "@/api/client";
@@ -23,6 +22,7 @@ import { ActionAlert } from "@/components/ui/action-alert";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useVoterImport } from "@/hooks/useVoterImport";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -238,7 +238,6 @@ export function VotersPage() {
   const [search, setSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
-  const [importing, setImporting] = useState(false);
   const [exportingQRCodes, setExportingQRCodes] = useState(false);
   const [exportQrProgress, setExportQrProgress] = useState<{ processed: number; total: number } | null>(null);
   const [addingVoter, setAddingVoter] = useState(false);
@@ -255,6 +254,14 @@ export function VotersPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const {
+    startImport,
+    isImporting: importing,
+    progress: importProgress,
+    status: importStatus,
+    processed: importProcessed,
+    total: importTotal,
+  } = useVoterImport();
 
   const loadElections = useCallback(async () => {
     try {
@@ -389,19 +396,20 @@ export function VotersPage() {
     }
 
     try {
-      setImporting(true);
       setError(null);
       setSuccess(null);
-      const response = await importVoters(file);
+      const response = await startImport(file);
       await loadVoters();
       setSuccess(
         `Import complete. ${response.meta.created} created, ${response.meta.updated} updated, ${response.meta.total_processed} processed.`
       );
       setMenuOpen(false);
     } catch (importError) {
-      setError(extractErrorMessage(importError));
-    } finally {
-      setImporting(false);
+      if (importError instanceof Error && importError.message.trim() !== "") {
+        setError(importError.message);
+      } else {
+        setError(extractErrorMessage(importError));
+      }
     }
   };
 
@@ -741,7 +749,13 @@ export function VotersPage() {
                   }}
                 >
                   <FileUp className="h-4 w-4 text-muted-foreground" />
-                  {importing ? "Importing..." : "Import Voters"}
+                  {importing
+                    ? importStatus === "processing"
+                      ? importTotal > 0
+                        ? `Importing... ${importProgress}% (${importProcessed}/${importTotal})`
+                        : `Importing... ${importProgress}%`
+                      : `Importing... ${importProgress}%`
+                    : "Import Voters"}
                 </button>
                 <button
                   className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-muted"
@@ -790,6 +804,23 @@ export function VotersPage() {
           <p className="text-xs text-muted-foreground">
             Generating QR cards: {exportQrProgress.processed}/{exportQrProgress.total}
           </p>
+        ) : null}
+        {importing ? (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">
+              {importStatus === "processing"
+                ? importTotal > 0
+                  ? `Processing imported voters... ${importProgress}% (${importProcessed}/${importTotal})`
+                  : `Processing imported voters... ${importProgress}%`
+                : `Uploading voter import file... ${importProgress}%`}
+            </p>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full bg-primary transition-[width] duration-150 ease-out"
+                style={{ width: `${importProgress}%` }}
+              />
+            </div>
+          </div>
         ) : null}
 
         {showAddVoterForm ? (
@@ -878,7 +909,15 @@ export function VotersPage() {
           </div>
         ) : null}
 
-        {error ? <ActionAlert tone="error" message={error} /> : null}
+        {error ? (
+          <ActionAlert
+            tone="error"
+            message={error}
+            autoHideMs={5000}
+            onAutoHide={() => setError(null)}
+            onClose={() => setError(null)}
+          />
+        ) : null}
         {success ? <ActionAlert tone="success" message={success} autoHideMs={1000} onAutoHide={() => setSuccess(null)} /> : null}
 
         <Table>

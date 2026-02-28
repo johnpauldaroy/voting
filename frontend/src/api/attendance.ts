@@ -40,6 +40,35 @@ interface ImportAttendanceResponse {
   };
 }
 
+interface AttendanceAccessCheckInPayload {
+  election_id: number;
+  voter_id: string;
+  voter_key: string;
+}
+
+export interface AttendanceAccessCheckInResponse {
+  message: string;
+  data: {
+    voter: {
+      name: string;
+      branch: string | null;
+      voter_id: string | null;
+      is_active: boolean;
+      attendance_status: AttendanceStatus;
+    };
+    election: {
+      id: number;
+      title: string;
+      status: "draft" | "open" | "closed";
+      start_datetime: string;
+      end_datetime: string;
+    };
+    already_present: boolean;
+    marked_present: boolean;
+    marked_at: string | null;
+  };
+}
+
 export async function getAttendances(params: GetAttendancesParams) {
   const response = await api.get<GetAttendancesResponse>("/attendances", {
     params: {
@@ -72,6 +101,11 @@ export async function importAttendances(file: File, electionId?: number) {
     },
   });
 
+  return response.data;
+}
+
+export async function attendanceAccessCheckIn(payload: AttendanceAccessCheckInPayload) {
+  const response = await api.post<AttendanceAccessCheckInResponse>("/attendance-access/check-in", payload);
   return response.data;
 }
 

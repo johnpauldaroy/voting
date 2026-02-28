@@ -6,6 +6,7 @@ import { AuthLayout } from "@/layouts/AuthLayout";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import { VoterAccessPage } from "@/pages/auth/VoterAccessPage";
+import { AttendanceAccessPage } from "@/pages/auth/AttendanceAccessPage";
 import { ActiveElectionsPage } from "@/pages/elections/ActiveElectionsPage";
 import { VotingPage } from "@/pages/voting/VotingPage";
 import { ResultsPage } from "@/pages/voting/ResultsPage";
@@ -53,6 +54,7 @@ export function AppRouter() {
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/access/:id" element={<VoterAccessPage />} />
+          <Route path="/attendance-access/:id" element={<AttendanceAccessPage />} />
         </Route>
         <Route path="/preview/:id" element={<PublicElectionPreviewPage />} />
 

@@ -56,6 +56,7 @@ RUN apk add --no-cache \
     mbstring \
     opcache \
     pdo_mysql \
+  && printf "upload_max_filesize=0\npost_max_size=0\nmax_file_uploads=100\n" > /usr/local/etc/php/conf.d/uploads.ini \
   && rm -rf /var/cache/apk/*
 
 COPY --from=backend-builder /app/backend /var/www/backend

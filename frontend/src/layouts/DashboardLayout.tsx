@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
+import { useVoterImport } from "@/hooks/useVoterImport";
 import type { UserRole } from "@/api/types";
 import coopVoteLogo from "@/assets/coop-vote-logo-cropped.png";
 
@@ -53,6 +54,16 @@ function roleLabel(role: UserRole) {
 
 export function DashboardLayout() {
   const { user, logout } = useAuth();
+  const {
+    status: voterImportStatus,
+    progress: voterImportProgress,
+    fileName: voterImportFileName,
+    message: voterImportMessage,
+    processed: voterImportProcessed,
+    total: voterImportTotal,
+    isImporting: isVoterImporting,
+    clearState: clearVoterImportState,
+  } = useVoterImport();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -75,6 +86,22 @@ export function DashboardLayout() {
   const nested = visibleLeafNav.find((item) => location.pathname.startsWith(item.path));
   const pageTitle = exact?.label ?? nested?.label ?? "Dashboard";
   const isVotingOnlyRoute = /^\/voting\/\d+$/.test(location.pathname);
+  const showVoterImportBanner =
+    (user.role === "super_admin" || user.role === "election_admin") &&
+    (isVoterImporting || voterImportStatus === "success" || voterImportStatus === "error");
+  const voterImportTitle = isVoterImporting
+    ? voterImportStatus === "processing"
+      ? "Processing Voter Import..."
+      : "Uploading Voter Import..."
+    : voterImportStatus === "success"
+      ? "Voter Import Complete"
+      : "Voter Import Failed";
+  const voterImportToneClass =
+    voterImportStatus === "error"
+      ? "border-rose-300 bg-rose-50 text-rose-800"
+      : voterImportStatus === "success"
+        ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+        : "border-sky-300 bg-sky-50 text-sky-800";
 
   useEffect(() => {
     const activeParent = visibleNav.find(
@@ -181,8 +208,12 @@ export function DashboardLayout() {
                         type="button"
                         title={desktopSidebarCollapsed ? item.label : undefined}
                         onClick={() => {
+                          const shouldNavigateToParent = location.pathname !== item.path;
+
                           if (desktopSidebarCollapsed) {
-                            void navigate(item.path);
+                            if (shouldNavigateToParent) {
+                              void navigate(item.path);
+                            }
                             setMobileSidebarOpen(false);
                             return;
                           }
@@ -192,8 +223,9 @@ export function DashboardLayout() {
                             [item.path]: !isExpanded,
                           }));
 
-                          if (!isParentActive) {
+                          if (shouldNavigateToParent) {
                             void navigate(item.path);
+                            setMobileSidebarOpen(false);
                           }
                         }}
                         className={`group flex w-full items-center rounded-[9px] px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
@@ -311,6 +343,49 @@ export function DashboardLayout() {
             </div>
           </div>
         </header>
+        {showVoterImportBanner ? (
+          <div className="border-b bg-card px-4 py-3 sm:px-6 lg:px-8">
+            <div className={`mx-auto max-w-[1400px] rounded-[10px] border px-3 py-2 ${voterImportToneClass}`}>
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">{voterImportTitle}</p>
+                  <p className="text-xs opacity-90">
+                    {voterImportFileName ? `File: ${voterImportFileName}` : "Voter import file"}
+                  </p>
+                  {isVoterImporting ? (
+                    <>
+                      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/70">
+                        <div
+                          className="h-full bg-current transition-[width] duration-150 ease-out"
+                          style={{ width: `${voterImportProgress}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs">
+                        {voterImportStatus === "processing"
+                          ? voterImportTotal > 0
+                            ? `Processing records... ${voterImportProgress}% (${voterImportProcessed}/${voterImportTotal})`
+                            : `Processing records... ${voterImportProgress}%`
+                          : `Uploading... ${voterImportProgress}%`}
+                      </p>
+                    </>
+                  ) : voterImportMessage ? (
+                    <p className="mt-1 text-xs">{voterImportMessage}</p>
+                  ) : null}
+                </div>
+                {!isVoterImporting ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-black/10"
+                    aria-label="Dismiss voter import status"
+                    onClick={clearVoterImportState}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <main className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
           <div className="mx-auto max-w-[1400px] animate-fade-up">

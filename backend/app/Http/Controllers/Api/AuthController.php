@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\AttendanceStatus;
 use App\Enums\ElectionStatus;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
@@ -20,6 +21,82 @@ use Throwable;
 
 class AuthController extends Controller
 {
+    public function attendanceAccessCheckIn(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'election_id' => ['required', 'integer', 'exists:elections,id'],
+            'voter_id' => ['required', 'string', 'max:100'],
+            'voter_key' => ['required', 'string', 'max:255'],
+        ]);
+
+        $voter = User::query()
+            ->where('role', UserRole::VOTER->value)
+            ->where('voter_id', trim((string) $data['voter_id']))
+            ->where('voter_key', (string) $data['voter_key'])
+            ->first();
+
+        if (! $voter) {
+            throw ValidationException::withMessages([
+                'voter_id' => ['The provided voter credentials are incorrect.'],
+            ]);
+        }
+
+        /** @var Election $election */
+        $election = Election::query()
+            ->select(['id', 'title', 'status', 'start_datetime', 'end_datetime'])
+            ->findOrFail((int) $data['election_id']);
+
+        if (! $voter->is_active) {
+            return response()->json([
+                'message' => 'Voter account is inactive.',
+                'data' => $this->attendanceAccessPayload($voter, $election, true, false, null),
+            ], 403);
+        }
+
+        if ($election->status !== ElectionStatus::OPEN->value || $election->hasEnded()) {
+            return response()->json([
+                'message' => 'Attendance access is available only while election is open.',
+                'data' => $this->attendanceAccessPayload($voter, $election, true, false, null),
+            ], 403);
+        }
+
+        $alreadyPresent = $voter->attendance_status === AttendanceStatus::PRESENT->value;
+
+        if ($alreadyPresent) {
+            return response()->json([
+                'message' => "{$voter->name} is already marked as present.",
+                'data' => $this->attendanceAccessPayload(
+                    $voter,
+                    $election,
+                    true,
+                    false,
+                    optional($voter->updated_at)->toIso8601String()
+                ),
+            ]);
+        }
+
+        $voter->forceFill([
+            'attendance_status' => AttendanceStatus::PRESENT->value,
+        ])->save();
+
+        AuditLogger::log(
+            $request,
+            'attendance.access_checkin',
+            "Attendance access marked voter #{$voter->id} present in election #{$election->id}."
+        );
+
+        return response()->json([
+            'message' => "{$voter->name} is now marked as present in attendance.",
+            'data' => $this->attendanceAccessPayload(
+                $voter->fresh(),
+                $election,
+                false,
+                true,
+                now()->toIso8601String()
+            ),
+        ]);
+    }
+
     public function previewVoterAccess(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -239,5 +316,37 @@ class AuthController extends Controller
             ->whereKey($userId)
             ->where('attendance_status', 'present')
             ->exists();
+    }
+
+    private function attendanceAccessPayload(
+        User $voter,
+        Election $election,
+        bool $alreadyPresent,
+        bool $markedPresent,
+        ?string $markedAt
+    ): array {
+        $status = in_array($voter->attendance_status, ['present', 'absent'], true)
+            ? $voter->attendance_status
+            : AttendanceStatus::ABSENT->value;
+
+        return [
+            'voter' => [
+                'name' => $voter->name,
+                'branch' => $voter->branch,
+                'voter_id' => $voter->voter_id,
+                'is_active' => (bool) $voter->is_active,
+                'attendance_status' => $status,
+            ],
+            'election' => [
+                'id' => $election->id,
+                'title' => $election->title,
+                'status' => $election->status,
+                'start_datetime' => $election->start_datetime,
+                'end_datetime' => $election->end_datetime,
+            ],
+            'already_present' => $alreadyPresent,
+            'marked_present' => $markedPresent,
+            'marked_at' => $markedAt,
+        ];
     }
 }

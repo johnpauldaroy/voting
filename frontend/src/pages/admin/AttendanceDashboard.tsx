@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IScannerControls } from "@zxing/browser";
-import { CalendarCheck2, Camera, ChevronDown, Download, Plus, Upload, UserCheck2, UserX, Users } from "lucide-react";
+import { CalendarCheck2, Camera, ChevronDown, Download, Link as LinkIcon, Plus, Upload, UserCheck2, UserX, Users } from "lucide-react";
 import { exportPresentAttendancesCsv, getAttendances, upsertAttendance } from "@/api/attendance";
 import { extractErrorMessage } from "@/api/client";
 import { getElections } from "@/api/elections";
 import { getVoters } from "@/api/users";
-import type { Attendance, User, UserRole } from "@/api/types";
+import type { Attendance, ElectionStatus, User, UserRole } from "@/api/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ActionAlert } from "@/components/ui/action-alert";
@@ -98,6 +98,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
   const [loading, setLoading] = useState(false);
   const [activeElectionId, setActiveElectionId] = useState<number | null>(null);
   const [activeElectionLabel, setActiveElectionLabel] = useState<string>("No election selected");
+  const [activeElectionStatus, setActiveElectionStatus] = useState<ElectionStatus | null>(null);
   const [notice, setNotice] = useState<{ tone: "error" | "success" | "warning"; message: string } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [addAttendanceOpen, setAddAttendanceOpen] = useState(false);
@@ -141,6 +142,11 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const buildAttendanceLink = useCallback((electionId: number) => {
+    const origin = window.location.origin;
+    return `${origin}/attendance-access/${electionId}`;
   }, []);
 
   const stopScanner = useCallback(() => {
@@ -399,10 +405,12 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
             loadedElections.find((election) => election.status === "open") ?? loadedElections[0];
           setActiveElectionId(defaultElection.id);
           setActiveElectionLabel(`${defaultElection.title} (#${defaultElection.id})`);
+          setActiveElectionStatus(defaultElection.status);
           await loadAttendances(defaultElection.id);
         } else {
           setActiveElectionId(null);
           setActiveElectionLabel("No election selected");
+          setActiveElectionStatus(null);
         }
       } catch (loadError) {
         setNotice({
@@ -615,6 +623,19 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           <div className="space-y-1">
             <CardTitle>Recent Attendance</CardTitle>
             <CardDescription>Attendance records for the selected election: {activeElectionLabel}.</CardDescription>
+            {activeElectionId && activeElectionStatus === "open" ? (
+              <div className="mt-2">
+                <a
+                  href={buildAttendanceLink(activeElectionId)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs font-medium text-primary hover:bg-secondary/80"
+                >
+                  <LinkIcon className="h-3.5 w-3.5" />
+                  Open Attendance Link
+                </a>
+              </div>
+            ) : null}
           </div>
           {view === "records" ? (
             <div className="flex flex-wrap items-center gap-2">

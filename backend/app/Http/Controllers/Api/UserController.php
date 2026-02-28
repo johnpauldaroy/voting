@@ -13,7 +13,9 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -272,6 +274,37 @@ class UserController extends Controller
         }, 'voter_import_template.csv', ['Content-Type' => 'text/csv']);
     }
 
+    public function voterImportProgress(Request $request, string $importId): JsonResponse
+    {
+        if (! $request->user()->isSuperAdmin() && ! $request->user()->isElectionAdmin()) {
+            return response()->json([
+                'message' => 'Forbidden.',
+            ], 403);
+        }
+
+        $validator = Validator::make(
+            ['import_id' => $importId],
+            ['import_id' => ['required', 'string', 'max:120']]
+        );
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => $validator->errors()->first(),
+            ], 422);
+        }
+
+        $progress = Cache::get($this->voterImportProgressCacheKey($importId));
+        if (! is_array($progress)) {
+            return response()->json([
+                'message' => 'Import progress not found. Start a new import.',
+            ], 404);
+        }
+
+        return response()->json([
+            'data' => $progress,
+        ]);
+    }
+
     public function importVoters(Request $request): JsonResponse
     {
         if (! $request->user()->isSuperAdmin() && ! $request->user()->isElectionAdmin()) {
@@ -280,8 +313,26 @@ class UserController extends Controller
             ], 403);
         }
 
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+
+        @ini_set('max_execution_time', '0');
+
         $request->validate([
-            'file' => ['required', 'file', 'mimes:csv,txt', 'max:5120'],
+            'import_id' => ['required', 'string', 'max:120'],
+            'file' => ['required', 'file', 'mimes:csv,txt'],
+        ]);
+
+        $importId = (string) $request->input('import_id');
+        $this->setVoterImportProgress($importId, [
+            'status' => 'upload_received',
+            'percent' => 0,
+            'processed' => 0,
+            'total' => 0,
+            'created' => 0,
+            'updated' => 0,
+            'message' => 'Upload received. Preparing voter import.',
         ]);
 
         /** @var UploadedFile $file */
@@ -289,6 +340,16 @@ class UserController extends Controller
         $rows = $this->readCsvFile($file);
 
         if (count($rows) < 2) {
+            $this->setVoterImportProgress($importId, [
+                'status' => 'failed',
+                'percent' => 0,
+                'processed' => 0,
+                'total' => 0,
+                'created' => 0,
+                'updated' => 0,
+                'message' => 'The CSV file must include a header row and at least one voter row.',
+            ]);
+
             return response()->json([
                 'message' => 'The CSV file must include a header row and at least one voter row.',
             ], 422);
@@ -310,7 +371,7 @@ class UserController extends Controller
                 $rowValues
             );
 
-            if (in_array('name', $candidateHeaders, true) && in_array('email', $candidateHeaders, true)) {
+            if (in_array('name', $candidateHeaders, true)) {
                 $headerRowIndex = $index;
                 $headers = $candidateHeaders;
                 break;
@@ -318,16 +379,46 @@ class UserController extends Controller
         }
 
         if ($headerRowIndex === null) {
+            $this->setVoterImportProgress($importId, [
+                'status' => 'failed',
+                'percent' => 0,
+                'processed' => 0,
+                'total' => 0,
+                'created' => 0,
+                'updated' => 0,
+                'message' => 'CSV must contain at least a NAME column.',
+            ]);
+
             return response()->json([
-                'message' => 'CSV must contain NAME and EMAIL columns.',
+                'message' => 'CSV must contain at least a NAME column.',
             ], 422);
         }
 
-        if (! in_array('name', $headers, true) || ! in_array('email', $headers, true)) {
+        if (! in_array('name', $headers, true)) {
+            $this->setVoterImportProgress($importId, [
+                'status' => 'failed',
+                'percent' => 0,
+                'processed' => 0,
+                'total' => 0,
+                'created' => 0,
+                'updated' => 0,
+                'message' => 'CSV must contain at least a NAME column.',
+            ]);
+
             return response()->json([
-                'message' => 'CSV must contain NAME and EMAIL columns.',
+                'message' => 'CSV must contain at least a NAME column.',
             ], 422);
         }
+
+        $this->setVoterImportProgress($importId, [
+            'status' => 'validating',
+            'percent' => 0,
+            'processed' => 0,
+            'total' => 0,
+            'created' => 0,
+            'updated' => 0,
+            'message' => 'Validating CSV rows.',
+        ]);
 
         $payloads = [];
         $errors = [];
@@ -338,7 +429,9 @@ class UserController extends Controller
             $row = [];
 
             foreach ($headers as $position => $header) {
-                $row[$header] = isset($rowValues[$position]) ? trim((string) $rowValues[$position]) : null;
+                $row[$header] = isset($rowValues[$position])
+                    ? $this->normalizeCsvCell(trim((string) $rowValues[$position]))
+                    : null;
             }
 
             $isEmptyRow = collect($row)->every(fn ($value): bool => $value === null || $value === '');
@@ -347,9 +440,11 @@ class UserController extends Controller
             }
 
             $normalized = [
-                'name' => $row['name'] ?? null,
-                'branch' => ($row['branch'] ?? null) ?: null,
-                'email' => isset($row['email']) ? strtolower((string) $row['email']) : null,
+                'name' => $this->normalizeCsvCell($row['name'] ?? null),
+                'branch' => ($this->normalizeCsvCell($row['branch'] ?? null)) ?: null,
+                'email' => isset($row['email']) && trim((string) $row['email']) !== ''
+                    ? strtolower((string) $this->normalizeCsvCell((string) $row['email']))
+                    : null,
             ];
 
             $isActiveParsed = $this->parseBoolean($row['is_active'] ?? null);
@@ -367,7 +462,7 @@ class UserController extends Controller
             $validator = Validator::make($normalized, [
                 'name' => ['required', 'string', 'max:255'],
                 'branch' => ['nullable', 'string', 'max:255'],
-                'email' => ['required', 'email', 'max:255'],
+                'email' => ['nullable', 'email', 'max:255'],
                 'is_active' => ['required', 'boolean'],
             ]);
 
@@ -380,93 +475,203 @@ class UserController extends Controller
                 continue;
             }
 
-            if (in_array($normalized['email'], $seenEmails, true)) {
-                $errors[] = [
-                    'line' => $line,
-                    'message' => 'Duplicate email found within the CSV file.',
-                ];
+            if ($normalized['email'] !== null) {
+                if (in_array($normalized['email'], $seenEmails, true)) {
+                    $errors[] = [
+                        'line' => $line,
+                        'message' => 'Duplicate email found within the CSV file.',
+                    ];
 
+                    continue;
+                }
+
+                $seenEmails[] = $normalized['email'];
+            }
+
+            $payloads[] = [
+                'line' => $line,
+                'data' => $normalized,
+            ];
+        }
+
+        $emails = collect($payloads)
+            ->map(fn (array $payload): ?string => $payload['data']['email'] ?? null)
+            ->filter()
+            ->unique()
+            ->values();
+
+        $existingUsersByEmail = $emails->isEmpty()
+            ? collect()
+            : User::query()
+                ->whereIn('email', $emails->all())
+                ->get()
+                ->keyBy(fn (User $user): string => strtolower((string) $user->email));
+
+        foreach ($payloads as $payload) {
+            $email = $payload['data']['email'] ?? null;
+
+            if ($email === null) {
                 continue;
             }
 
-            $seenEmails[] = $normalized['email'];
-
-            $existingUser = User::query()->where('email', $normalized['email'])->first();
-
+            $existingUser = $existingUsersByEmail->get($email);
             if ($existingUser && ! $existingUser->isVoter()) {
                 $errors[] = [
-                    'line' => $line,
+                    'line' => $payload['line'],
                     'message' => 'This email belongs to a non-voter account and cannot be imported as voter.',
                 ];
-
-                continue;
             }
-
-            $payloads[] = $normalized;
         }
 
         if (count($errors) > 0) {
+            $this->setVoterImportProgress($importId, [
+                'status' => 'failed',
+                'percent' => 0,
+                'processed' => 0,
+                'total' => count($payloads),
+                'created' => 0,
+                'updated' => 0,
+                'message' => 'Import failed due to CSV validation errors.',
+            ]);
+
             return response()->json([
                 'message' => 'Import failed due to CSV validation errors.',
                 'errors' => $errors,
             ], 422);
         }
 
+        $totalPayloads = count($payloads);
         $created = 0;
         $updated = 0;
+        $processed = 0;
+        $lastReportedPercent = -1;
+        $defaultPasswordHash = Hash::make('Password@123');
 
-        DB::transaction(function () use ($payloads, &$created, &$updated): void {
-            foreach ($payloads as $payload) {
-                $existingUser = User::query()->where('email', $payload['email'])->first();
+        $this->setVoterImportProgress($importId, [
+            'status' => 'importing',
+            'percent' => 0,
+            'processed' => 0,
+            'total' => $totalPayloads,
+            'created' => 0,
+            'updated' => 0,
+            'message' => 'Importing voters...',
+        ]);
 
-                $attributes = [
-                    'name' => $payload['name'],
-                    'branch' => $payload['branch'],
-                    'role' => 'voter',
-                    'is_active' => (bool) $payload['is_active'],
-                ];
+        try {
+            DB::transaction(function () use (
+                $payloads,
+                $existingUsersByEmail,
+                $defaultPasswordHash,
+                $totalPayloads,
+                $importId,
+                &$created,
+                &$updated,
+                &$processed,
+                &$lastReportedPercent
+            ): void {
+                foreach ($payloads as $payloadItem) {
+                    $payload = $payloadItem['data'];
+                    $existingUser = $payload['email'] !== null
+                        ? $existingUsersByEmail->get($payload['email'])
+                        : null;
 
-                if (! $existingUser) {
-                    $attributes['password'] = 'Password@123';
+                    $attributes = [
+                        'name' => $payload['name'],
+                        'branch' => $payload['branch'],
+                        'role' => 'voter',
+                        'is_active' => (bool) $payload['is_active'],
+                    ];
+
+                    if ($existingUser) {
+                        $existingUser->fill($attributes);
+                        $existingUser->save();
+                        $user = $existingUser;
+                        $updated++;
+                    } else {
+                        $user = User::create([
+                            ...$attributes,
+                            'email' => $payload['email'],
+                            'password' => $defaultPasswordHash,
+                        ]);
+
+                        if ($payload['email'] !== null) {
+                            $existingUsersByEmail->put($payload['email'], $user);
+                        }
+
+                        $created++;
+                    }
+
+                    $shouldSave = false;
+
+                    if (! $user->voter_id) {
+                        $user->voter_id = $this->generateUniqueVoterId($user->name, $user->id);
+                        $shouldSave = true;
+                    }
+
+                    if (! $user->voter_key) {
+                        $user->voter_key = $this->generateVoterKeyFromName($user->name);
+                        $shouldSave = true;
+                    }
+
+                    if ($shouldSave) {
+                        $user->save();
+                    }
+
+                    $processed++;
+                    $percent = $totalPayloads > 0
+                        ? (int) floor(($processed / $totalPayloads) * 100)
+                        : 100;
+
+                    if ($percent !== $lastReportedPercent || $processed === $totalPayloads) {
+                        $lastReportedPercent = $percent;
+                        $this->setVoterImportProgress($importId, [
+                            'status' => 'importing',
+                            'percent' => $percent,
+                            'processed' => $processed,
+                            'total' => $totalPayloads,
+                            'created' => $created,
+                            'updated' => $updated,
+                            'message' => 'Importing voters...',
+                        ]);
+                    }
                 }
+            });
+        } catch (\Throwable $exception) {
+            $this->setVoterImportProgress($importId, [
+                'status' => 'failed',
+                'percent' => $totalPayloads > 0 ? (int) floor(($processed / $totalPayloads) * 100) : 0,
+                'processed' => $processed,
+                'total' => $totalPayloads,
+                'created' => $created,
+                'updated' => $updated,
+                'message' => 'Import failed while processing records.',
+            ]);
 
-                if ($existingUser) {
-                    $existingUser->fill($attributes);
-                    $existingUser->save();
-                    $user = $existingUser;
-                    $updated++;
-                } else {
-                    $user = User::create([
-                        ...$attributes,
-                        'email' => $payload['email'],
-                    ]);
-                    $created++;
-                }
-
-                if (! $user->voter_id) {
-                    $user->voter_id = $this->generateUniqueVoterId($user->name, $user->id);
-                    $user->save();
-                }
-
-                if (! $user->voter_key) {
-                    $user->voter_key = $this->generateVoterKeyFromName($user->name);
-                    $user->save();
-                }
-            }
-        });
+            throw $exception;
+        }
 
         AuditLogger::log(
             $request,
             'voter.import',
-            "Voter import completed. Created: {$created}, Updated: {$updated}, Processed: ".count($payloads).'.'
+            "Voter import completed. Created: {$created}, Updated: {$updated}, Processed: {$totalPayloads}."
         );
+
+        $this->setVoterImportProgress($importId, [
+            'status' => 'completed',
+            'percent' => 100,
+            'processed' => $totalPayloads,
+            'total' => $totalPayloads,
+            'created' => $created,
+            'updated' => $updated,
+            'message' => 'Voter import completed.',
+        ]);
 
         return response()->json([
             'message' => 'Voters imported successfully.',
             'meta' => [
                 'created' => $created,
                 'updated' => $updated,
-                'total_processed' => count($payloads),
+                'total_processed' => $totalPayloads,
             ],
         ]);
     }
@@ -829,7 +1034,10 @@ class UserController extends Controller
                 continue;
             }
 
-            $rows[] = $data;
+            $rows[] = array_map(
+                fn ($value): ?string => $this->normalizeCsvCell($value === null ? null : (string) $value),
+                $data
+            );
         }
 
         fclose($handle);
@@ -855,13 +1063,38 @@ class UserController extends Controller
             return $this->convertToUtf8($content, 'UTF-16LE');
         }
 
+        if (function_exists('mb_check_encoding') && function_exists('mb_convert_encoding')) {
+            if (! mb_check_encoding($content, 'UTF-8')) {
+                $detected = mb_detect_encoding(
+                    $content,
+                    ['Windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-8'],
+                    true
+                );
+
+                if ($detected !== false && strtoupper($detected) !== 'UTF-8') {
+                    $converted = @mb_convert_encoding($content, 'UTF-8', $detected);
+                    if ($converted !== false) {
+                        return (string) $converted;
+                    }
+                }
+
+                $fallback = @mb_convert_encoding($content, 'UTF-8', 'Windows-1252');
+                if ($fallback !== false) {
+                    return (string) $fallback;
+                }
+            }
+        }
+
         return $content;
     }
 
     private function convertToUtf8(string $content, string $fromEncoding): string
     {
         if (function_exists('mb_convert_encoding')) {
-            return (string) mb_convert_encoding($content, 'UTF-8', $fromEncoding);
+            $converted = @mb_convert_encoding($content, 'UTF-8', $fromEncoding);
+            if ($converted !== false) {
+                return (string) $converted;
+            }
         }
 
         if (function_exists('iconv')) {
@@ -872,6 +1105,57 @@ class UserController extends Controller
         }
 
         return $content;
+    }
+
+    private function normalizeCsvCell(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if ($value === '') {
+            return '';
+        }
+
+        if (function_exists('mb_check_encoding') && mb_check_encoding($value, 'UTF-8')) {
+            return $value;
+        }
+
+        if (function_exists('mb_convert_encoding')) {
+            $detected = mb_detect_encoding(
+                $value,
+                ['UTF-8', 'Windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-16LE', 'UTF-16BE'],
+                true
+            );
+
+            if ($detected !== false) {
+                $converted = @mb_convert_encoding($value, 'UTF-8', $detected);
+                if ($converted !== false && (! function_exists('mb_check_encoding') || mb_check_encoding($converted, 'UTF-8'))) {
+                    return (string) $converted;
+                }
+            }
+
+            $fallback = @mb_convert_encoding($value, 'UTF-8', 'Windows-1252');
+            if ($fallback !== false && (! function_exists('mb_check_encoding') || mb_check_encoding($fallback, 'UTF-8'))) {
+                return (string) $fallback;
+            }
+        }
+
+        if (function_exists('iconv')) {
+            foreach (['Windows-1252', 'ISO-8859-1', 'ISO-8859-15'] as $encoding) {
+                $converted = @iconv($encoding, 'UTF-8//IGNORE', $value);
+                if ($converted !== false && $converted !== '') {
+                    return $converted;
+                }
+            }
+
+            $cleaned = @iconv('UTF-8', 'UTF-8//IGNORE', $value);
+            if ($cleaned !== false) {
+                return $cleaned;
+            }
+        }
+
+        return preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $value) ?? '';
     }
 
     private function normalizeCsvHeader(string $header): string
@@ -999,5 +1283,39 @@ class UserController extends Controller
             ->exists();
 
         return ! $isOnlyActiveSuperAdmin;
+    }
+
+    private function voterImportProgressCacheKey(string $importId): string
+    {
+        return 'voter_import_progress:'.$importId;
+    }
+
+    /**
+     * @param  array{
+     *   status:string,
+     *   percent:int,
+     *   processed:int,
+     *   total:int,
+     *   created:int,
+     *   updated:int,
+     *   message:string
+     * }  $payload
+     */
+    private function setVoterImportProgress(string $importId, array $payload): void
+    {
+        Cache::put(
+            $this->voterImportProgressCacheKey($importId),
+            [
+                'status' => $payload['status'],
+                'percent' => max(0, min(100, (int) $payload['percent'])),
+                'processed' => max(0, (int) $payload['processed']),
+                'total' => max(0, (int) $payload['total']),
+                'created' => max(0, (int) $payload['created']),
+                'updated' => max(0, (int) $payload['updated']),
+                'message' => (string) $payload['message'],
+                'updated_at' => now()->toIso8601String(),
+            ],
+            now()->addMinutes(30)
+        );
     }
 }

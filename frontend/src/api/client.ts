@@ -53,13 +53,29 @@ export async function ensureCsrfCookie() {
 
 export function extractErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const data = error.response?.data as { message?: string; errors?: Record<string, string[]> } | undefined;
+    const data = error.response?.data as
+      | {
+          message?: string;
+          errors?: Record<string, string[]> | Array<{ line?: number | string; message?: string }>;
+        }
+      | undefined;
 
     if (!error.response) {
       return `Cannot connect to the API server at ${API_BASE_URL}. Start the Laravel backend and try again.`;
     }
 
-    if (data?.errors) {
+    if (Array.isArray(data?.errors) && data.errors.length > 0) {
+      const firstError = data.errors[0];
+      const linePrefix =
+        typeof firstError?.line === "number" || typeof firstError?.line === "string"
+          ? `Line ${firstError.line}: `
+          : "";
+      if (firstError?.message) {
+        return `${linePrefix}${firstError.message}`;
+      }
+    }
+
+    if (data?.errors && !Array.isArray(data.errors)) {
       const firstField = Object.values(data.errors)[0];
       if (firstField?.[0]) {
         return firstField[0];

@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 Route::post('/voter-access/preview', [AuthController::class, 'previewVoterAccess'])->middleware('throttle:login');
+Route::post('/attendance-access/check-in', [AuthController::class, 'attendanceAccessCheckIn'])->middleware('throttle:login');
 Route::get('/preview/elections/{election}', [ElectionController::class, 'preview']);
 
 Route::middleware(['auth:sanctum', 'active'])->group(function () {
@@ -44,6 +45,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::delete('/voters/{user}', [UserController::class, 'deleteVoter']);
         Route::get('/voters/template', [UserController::class, 'downloadTemplate']);
         Route::post('/voters/import', [UserController::class, 'importVoters']);
+        Route::get('/voters/import/progress/{importId}', [UserController::class, 'voterImportProgress']);
         Route::get('/voters/export', [UserController::class, 'exportVoters']);
         Route::get('/voters/logs/export', [UserController::class, 'exportVoterLogs']);
     });

@@ -129,7 +129,7 @@ export async function downloadVoterTemplate() {
   downloadCsvBlob(response.data, "voter_import_template.csv");
 }
 
-interface ImportVotersResponse {
+export interface ImportVotersResponse {
   message: string;
   meta: {
     created: number;
@@ -138,15 +138,46 @@ interface ImportVotersResponse {
   };
 }
 
-export async function importVoters(file: File) {
+export interface VoterImportProgressSnapshot {
+  status: "upload_received" | "validating" | "importing" | "completed" | "failed";
+  percent: number;
+  processed: number;
+  total: number;
+  created: number;
+  updated: number;
+  message: string;
+  updated_at: string;
+}
+
+export async function getVoterImportProgress(importId: string) {
+  const response = await api.get<{ data: VoterImportProgressSnapshot }>(`/voters/import/progress/${encodeURIComponent(importId)}`);
+  return response.data.data;
+}
+
+export async function importVoters(file: File, importId: string, onProgress?: (percent: number) => void) {
   const formData = new FormData();
+  formData.append("import_id", importId);
   formData.append("file", file);
 
   const response = await api.post<ImportVotersResponse>("/voters/import", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },
+    onUploadProgress: (event) => {
+      if (!onProgress) {
+        return;
+      }
+
+      if (!event.total || event.total <= 0) {
+        onProgress(0);
+        return;
+      }
+
+      const percent = Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100)));
+      onProgress(percent);
+    },
   });
 
+  onProgress?.(100);
   return response.data;
 }
