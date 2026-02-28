@@ -13,6 +13,7 @@ export interface VoterCardTemplateLayout {
   logoY: number;
   logoWidth: number;
   logoHeight: number;
+  cardTemplateImageDataUrl: string;
   cardX: number;
   cardY: number;
   cardWidth: number;
@@ -28,7 +29,9 @@ export interface VoterCardTemplateLayout {
   qrBorderWidth: number;
   textX: number;
   nameY: number;
+  nameFontSize: number;
   branchY: number;
+  branchFontSize: number;
   footerY: number;
   nameColor: string;
   branchColor: string;
@@ -53,6 +56,7 @@ export const DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT: VoterCardTemplateLayout = {
   logoY: 18,
   logoWidth: 180,
   logoHeight: 72,
+  cardTemplateImageDataUrl: "",
   cardX: 160,
   cardY: 170,
   cardWidth: 880,
@@ -68,7 +72,9 @@ export const DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT: VoterCardTemplateLayout = {
   qrBorderWidth: 2,
   textX: 580,
   nameY: 380,
+  nameFontSize: 52,
   branchY: 465,
+  branchFontSize: 42,
   footerY: 540,
   nameColor: "#111827",
   branchColor: "#334155",
@@ -120,6 +126,7 @@ export function sanitizeVoterCardTemplateLayout(partial: Partial<VoterCardTempla
     logoY: clampNumber(partial.logoY, fallback.logoY, 10, 1300),
     logoWidth: clampNumber(partial.logoWidth, fallback.logoWidth, 60, 900),
     logoHeight: clampNumber(partial.logoHeight, fallback.logoHeight, 30, 600),
+    cardTemplateImageDataUrl: toOptionalStringValue(partial.cardTemplateImageDataUrl, fallback.cardTemplateImageDataUrl),
     cardX: clampNumber(partial.cardX, fallback.cardX, 20, 1700),
     cardY: clampNumber(partial.cardY, fallback.cardY, 20, 1300),
     cardWidth: clampNumber(partial.cardWidth, fallback.cardWidth, 300, 1700),
@@ -135,7 +142,9 @@ export function sanitizeVoterCardTemplateLayout(partial: Partial<VoterCardTempla
     qrBorderWidth: clampNumber(partial.qrBorderWidth, fallback.qrBorderWidth, 0, 12),
     textX: clampNumber(partial.textX, fallback.textX, 20, 1800),
     nameY: clampNumber(partial.nameY, fallback.nameY, 20, 1300),
+    nameFontSize: clampNumber(partial.nameFontSize, fallback.nameFontSize, 16, 140),
     branchY: clampNumber(partial.branchY, fallback.branchY, 20, 1300),
+    branchFontSize: clampNumber(partial.branchFontSize, fallback.branchFontSize, 14, 120),
     footerY: clampNumber(partial.footerY, fallback.footerY, 20, 1300),
     nameColor: toStringValue(partial.nameColor, fallback.nameColor),
     branchColor: toStringValue(partial.branchColor, fallback.branchColor),
@@ -242,6 +251,82 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
+function trimTextToWidth(context: CanvasRenderingContext2D, value: string, maxWidth: number) {
+  if (context.measureText(value).width <= maxWidth) {
+    return value;
+  }
+
+  let trimmed = value;
+  while (trimmed.length > 1 && context.measureText(trimmed).width > maxWidth) {
+    trimmed = trimmed.slice(0, -1);
+  }
+
+  return trimmed;
+}
+
+function wrapTextToLines(
+  context: CanvasRenderingContext2D,
+  value: string,
+  maxWidth: number,
+  maxLines: number
+) {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return ["-"];
+  }
+
+  const words = normalized.split(" ");
+  const lines: string[] = [];
+  let current = "";
+
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i];
+    const candidate = current ? `${current} ${word}` : word;
+
+    if (context.measureText(candidate).width <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+
+      if (current) {
+        if (lines.length === maxLines - 1) {
+          lines.push(trimTextToWidth(context, current, maxWidth));
+          return lines;
+        }
+
+      lines.push(current);
+      current = "";
+    }
+
+    if (context.measureText(word).width <= maxWidth) {
+      current = word;
+      continue;
+    }
+
+    let rest = word;
+      while (rest.length > 0) {
+        let chunk = rest;
+        while (chunk.length > 1 && context.measureText(chunk).width > maxWidth) {
+          chunk = chunk.slice(0, -1);
+        }
+
+        if (lines.length === maxLines - 1) {
+          lines.push(trimTextToWidth(context, rest, maxWidth));
+          return lines;
+        }
+
+      lines.push(chunk);
+      rest = rest.slice(chunk.length);
+    }
+  }
+
+  if (current) {
+    lines.push(current);
+  }
+
+  return lines.slice(0, maxLines);
+}
+
 interface RenderVoterQrCardOptions {
   qrDataUrl?: string;
   voterName?: string;
@@ -266,15 +351,81 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
     throw new Error("Unable to prepare QR card canvas.");
   }
 
-  context.fillStyle = resolvedLayout.backgroundColor;
-  context.fillRect(0, 0, resolvedLayout.canvasWidth, resolvedLayout.canvasHeight);
+  if (resolvedLayout.cardTemplateImageDataUrl) {
+    try {
+      const cardTemplateImage = await loadImage(resolvedLayout.cardTemplateImageDataUrl, "Unable to render card template image.");
+      context.save();
+      roundedRectPath(
+        context,
+        resolvedLayout.cardX,
+        resolvedLayout.cardY,
+        resolvedLayout.cardWidth,
+        resolvedLayout.cardHeight,
+        resolvedLayout.cardRadius
+      );
+      context.clip();
+      context.drawImage(
+        cardTemplateImage,
+        resolvedLayout.cardX,
+        resolvedLayout.cardY,
+        resolvedLayout.cardWidth,
+        resolvedLayout.cardHeight
+      );
+      context.restore();
 
-  context.fillStyle = resolvedLayout.headerColor;
-  context.fillRect(0, 0, resolvedLayout.canvasWidth, resolvedLayout.headerHeight);
-
-  context.fillStyle = resolvedLayout.headerTextColor;
-  context.font = "700 52px Segoe UI, Arial, sans-serif";
-  context.fillText(resolvedLayout.headerText, resolvedLayout.headerTextX, resolvedLayout.headerTextY);
+      if (resolvedLayout.cardBorderWidth > 0) {
+        context.save();
+        roundedRectPath(
+          context,
+          resolvedLayout.cardX,
+          resolvedLayout.cardY,
+          resolvedLayout.cardWidth,
+          resolvedLayout.cardHeight,
+          resolvedLayout.cardRadius
+        );
+        context.lineWidth = resolvedLayout.cardBorderWidth;
+        context.strokeStyle = resolvedLayout.cardBorderColor;
+        context.stroke();
+        context.restore();
+      }
+    } catch {
+      context.save();
+      roundedRectPath(
+        context,
+        resolvedLayout.cardX,
+        resolvedLayout.cardY,
+        resolvedLayout.cardWidth,
+        resolvedLayout.cardHeight,
+        resolvedLayout.cardRadius
+      );
+      context.fillStyle = resolvedLayout.cardFillColor;
+      context.fill();
+      if (resolvedLayout.cardBorderWidth > 0) {
+        context.lineWidth = resolvedLayout.cardBorderWidth;
+        context.strokeStyle = resolvedLayout.cardBorderColor;
+        context.stroke();
+      }
+      context.restore();
+    }
+  } else {
+    context.save();
+    roundedRectPath(
+      context,
+      resolvedLayout.cardX,
+      resolvedLayout.cardY,
+      resolvedLayout.cardWidth,
+      resolvedLayout.cardHeight,
+      resolvedLayout.cardRadius
+    );
+    context.fillStyle = resolvedLayout.cardFillColor;
+    context.fill();
+    if (resolvedLayout.cardBorderWidth > 0) {
+      context.lineWidth = resolvedLayout.cardBorderWidth;
+      context.strokeStyle = resolvedLayout.cardBorderColor;
+      context.stroke();
+    }
+    context.restore();
+  }
 
   if (resolvedLayout.logoDataUrl) {
     try {
@@ -291,24 +442,6 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
     }
   }
 
-  context.save();
-  roundedRectPath(
-    context,
-    resolvedLayout.cardX,
-    resolvedLayout.cardY,
-    resolvedLayout.cardWidth,
-    resolvedLayout.cardHeight,
-    resolvedLayout.cardRadius
-  );
-  context.fillStyle = resolvedLayout.cardFillColor;
-  context.fill();
-  if (resolvedLayout.cardBorderWidth > 0) {
-    context.lineWidth = resolvedLayout.cardBorderWidth;
-    context.strokeStyle = resolvedLayout.cardBorderColor;
-    context.stroke();
-  }
-  context.restore();
-
   if (options.qrDataUrl) {
     const qrImage = await loadImage(options.qrDataUrl, "Unable to render QR image.");
     context.imageSmoothingEnabled = false;
@@ -323,22 +456,54 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
   }
 
   if (showData) {
+    const textAreaRight = Math.min(resolvedLayout.canvasWidth - 20, resolvedLayout.cardX + resolvedLayout.cardWidth - 24);
+    const textAreaWidth = Math.max(80, textAreaRight - resolvedLayout.textX);
+    const cardBottomBaseline = resolvedLayout.cardY + resolvedLayout.cardHeight - 20;
+
     context.fillStyle = resolvedLayout.nameColor;
-    context.font = "700 52px Segoe UI, Arial, sans-serif";
-    context.fillText(options.voterName?.trim() || "-", resolvedLayout.textX, resolvedLayout.nameY);
+    context.font = `700 ${resolvedLayout.nameFontSize}px Segoe UI, Arial, sans-serif`;
+    const nameLineHeight = Math.max(18, Math.round(resolvedLayout.nameFontSize * 1.08));
+    const reservedBranchHeight = Math.max(18, Math.round(resolvedLayout.branchFontSize * 1.1));
+    const maxNameBottomBaseline = cardBottomBaseline - reservedBranchHeight - 8;
+    const maxNameLines = Math.max(1, Math.floor((maxNameBottomBaseline - resolvedLayout.nameY) / nameLineHeight) + 1);
+    const nameLines = wrapTextToLines(context, options.voterName?.trim() || "-", textAreaWidth, maxNameLines);
+    nameLines.forEach((line, index) => {
+      context.fillText(line, resolvedLayout.textX, resolvedLayout.nameY + index * nameLineHeight);
+    });
+    const lastNameBaseline = resolvedLayout.nameY + (nameLines.length - 1) * nameLineHeight;
 
     context.fillStyle = resolvedLayout.branchColor;
-    context.font = "500 42px Segoe UI, Arial, sans-serif";
-    context.fillText(options.branch?.trim() || "-", resolvedLayout.textX, resolvedLayout.branchY);
+    context.font = `500 ${resolvedLayout.branchFontSize}px Segoe UI, Arial, sans-serif`;
+    const branchValue = trimTextToWidth(context, options.branch?.trim() || "-", textAreaWidth);
+    const minBranchBaseline = lastNameBaseline + Math.max(16, Math.round(resolvedLayout.branchFontSize * 0.9));
+    const maxBranchBaseline = cardBottomBaseline;
+    const branchBaseline = Math.min(maxBranchBaseline, Math.max(resolvedLayout.branchY, minBranchBaseline));
+    context.fillText(branchValue, resolvedLayout.textX, branchBaseline);
   } else {
     context.fillStyle = "#e5e7eb";
-    context.fillRect(resolvedLayout.textX, resolvedLayout.nameY - 42, 330, 44);
-    context.fillRect(resolvedLayout.textX, resolvedLayout.branchY - 32, 260, 34);
+    const textAreaRight = Math.min(resolvedLayout.canvasWidth - 20, resolvedLayout.cardX + resolvedLayout.cardWidth - 24);
+    const textAreaWidth = Math.max(80, textAreaRight - resolvedLayout.textX);
+    const nameBlockHeight = Math.max(20, Math.round(resolvedLayout.nameFontSize * 0.84));
+    const branchBlockHeight = Math.max(18, Math.round(resolvedLayout.branchFontSize * 0.84));
+    context.fillRect(
+      resolvedLayout.textX,
+      resolvedLayout.nameY - nameBlockHeight,
+      Math.min(textAreaWidth, Math.max(180, Math.round(resolvedLayout.nameFontSize * 6.35))),
+      nameBlockHeight + 2
+    );
+    context.fillRect(
+      resolvedLayout.textX,
+      resolvedLayout.nameY + 8,
+      Math.min(textAreaWidth, Math.max(140, Math.round(resolvedLayout.nameFontSize * 3.8))),
+      nameBlockHeight + 2
+    );
+    context.fillRect(
+      resolvedLayout.textX,
+      resolvedLayout.branchY - branchBlockHeight,
+      Math.min(textAreaWidth, Math.max(140, Math.round(resolvedLayout.branchFontSize * 6.2))),
+      branchBlockHeight + 2
+    );
   }
-
-  context.fillStyle = resolvedLayout.footerColor;
-  context.font = "400 30px Segoe UI, Arial, sans-serif";
-  context.fillText(resolvedLayout.footerText, resolvedLayout.textX, resolvedLayout.footerY);
 
   return canvas;
 }

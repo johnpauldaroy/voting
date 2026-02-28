@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { ChevronDown, ImagePlus, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, FileUp, ImagePlus, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,8 +15,6 @@ import {
 } from "@/lib/voterCardTemplate";
 
 type PositionFieldKey =
-  | "headerTextX"
-  | "headerTextY"
   | "logoX"
   | "logoY"
   | "cardX"
@@ -25,27 +23,27 @@ type PositionFieldKey =
   | "qrY"
   | "textX"
   | "nameY"
-  | "branchY"
-  | "footerY";
+  | "branchY";
 
-type SizeFieldKey = "cardWidth" | "cardHeight" | "cardRadius" | "qrSize" | "logoWidth" | "logoHeight";
+type SizeFieldKey =
+  | "cardWidth"
+  | "cardHeight"
+  | "cardRadius"
+  | "qrSize"
+  | "logoWidth"
+  | "logoHeight"
+  | "nameFontSize"
+  | "branchFontSize";
 type NumberFieldKey = PositionFieldKey | SizeFieldKey;
-type TextFieldKey = "headerText" | "footerText";
 type ColorFieldKey =
-  | "backgroundColor"
-  | "headerColor"
-  | "headerTextColor"
   | "cardFillColor"
   | "cardBorderColor"
   | "qrBorderColor"
   | "nameColor"
-  | "branchColor"
-  | "footerColor";
-type DragHandleId = "header" | "logo" | "card" | "qr" | "name" | "branch" | "footer";
+  | "branchColor";
+type DragHandleId = "logo" | "card" | "qr" | "name" | "branch";
 
 const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
-  headerTextX: { min: 20, max: 1500 },
-  headerTextY: { min: 30, max: 500 },
   logoX: { min: 20, max: 1800 },
   logoY: { min: 10, max: 1300 },
   cardX: { min: 20, max: 1700 },
@@ -55,39 +53,22 @@ const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   textX: { min: 20, max: 1800 },
   nameY: { min: 20, max: 1300 },
   branchY: { min: 20, max: 1300 },
-  footerY: { min: 20, max: 1300 },
   cardWidth: { min: 300, max: 1700 },
   cardHeight: { min: 220, max: 1200 },
   cardRadius: { min: 0, max: 200 },
   qrSize: { min: 120, max: 900 },
   logoWidth: { min: 60, max: 900 },
   logoHeight: { min: 30, max: 600 },
+  nameFontSize: { min: 16, max: 140 },
+  branchFontSize: { min: 14, max: 120 },
 };
 
-const SIZE_FIELDS: Array<{ key: SizeFieldKey; label: string; step: number }> = [
-  { key: "cardWidth", label: "Card Width", step: 1 },
-  { key: "cardHeight", label: "Card Height", step: 1 },
-  { key: "cardRadius", label: "Card Radius", step: 1 },
-  { key: "qrSize", label: "QR Size", step: 1 },
-  { key: "logoWidth", label: "Logo Width", step: 1 },
-  { key: "logoHeight", label: "Logo Height", step: 1 },
-];
-
-const TEXT_FIELDS: Array<{ key: TextFieldKey; label: string }> = [
-  { key: "headerText", label: "Header Text" },
-  { key: "footerText", label: "Footer Text" },
-];
-
 const COLOR_FIELDS: Array<{ key: ColorFieldKey; label: string }> = [
-  { key: "backgroundColor", label: "Background" },
-  { key: "headerColor", label: "Header Background" },
-  { key: "headerTextColor", label: "Header Text" },
   { key: "cardFillColor", label: "Card Background" },
   { key: "cardBorderColor", label: "Card Border" },
   { key: "qrBorderColor", label: "QR Border" },
   { key: "nameColor", label: "Name Text" },
   { key: "branchColor", label: "Branch Text" },
-  { key: "footerColor", label: "Footer Text" },
 ];
 
 interface DragHandle {
@@ -97,16 +78,15 @@ interface DragHandle {
   yKey: PositionFieldKey;
   widthKey?: SizeFieldKey;
   heightKey?: SizeFieldKey;
+  movable?: boolean;
 }
 
 const DRAG_HANDLES: DragHandle[] = [
-  { id: "header", label: "Header", xKey: "headerTextX", yKey: "headerTextY" },
   { id: "logo", label: "Logo", xKey: "logoX", yKey: "logoY", widthKey: "logoWidth", heightKey: "logoHeight" },
-  { id: "card", label: "Card", xKey: "cardX", yKey: "cardY", widthKey: "cardWidth", heightKey: "cardHeight" },
+  { id: "card", label: "Card", xKey: "cardX", yKey: "cardY", widthKey: "cardWidth", heightKey: "cardHeight", movable: false },
   { id: "qr", label: "QR", xKey: "qrX", yKey: "qrY", widthKey: "qrSize", heightKey: "qrSize" },
   { id: "name", label: "Name", xKey: "textX", yKey: "nameY" },
   { id: "branch", label: "Branch", xKey: "textX", yKey: "branchY" },
-  { id: "footer", label: "Footer", xKey: "textX", yKey: "footerY" },
 ];
 
 const HANDLE_STYLES: Record<
@@ -118,12 +98,6 @@ const HANDLE_STYLES: Record<
     active: string;
   }
 > = {
-  header: {
-    outline: "border-indigo-500/80 bg-indigo-500/10",
-    badge: "bg-indigo-600 text-white",
-    point: "border-indigo-500 bg-indigo-50 text-indigo-700",
-    active: "ring-indigo-300",
-  },
   logo: {
     outline: "border-cyan-500/80 bg-cyan-500/10",
     badge: "bg-cyan-600 text-white",
@@ -154,20 +128,20 @@ const HANDLE_STYLES: Record<
     point: "border-violet-500 bg-violet-50 text-violet-700",
     active: "ring-violet-300",
   },
-  footer: {
-    outline: "border-rose-500/80 bg-rose-500/10",
-    badge: "bg-rose-600 text-white",
-    point: "border-rose-500 bg-rose-50 text-rose-700",
-    active: "ring-rose-300",
-  },
 };
 
 interface DragSession {
+  mode: "move" | "resize";
+  handleId: DragHandleId;
   pointerId: number;
   xKey: PositionFieldKey;
   yKey: PositionFieldKey;
+  widthKey?: SizeFieldKey;
+  heightKey?: SizeFieldKey;
   startX: number;
   startY: number;
+  startWidth?: number;
+  startHeight?: number;
   startClientX: number;
   startClientY: number;
   canvasRect: DOMRect;
@@ -191,15 +165,17 @@ function toColorPickerValue(value: string, fallback: string) {
 export function IDTemplatePage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const templateInputRef = useRef<HTMLInputElement | null>(null);
   const dragSessionRef = useRef<DragSession | null>(null);
   const [savedTemplate, setSavedTemplate] = useState<VoterCardTemplateLayout>(() => getStoredVoterCardTemplateLayout());
   const [draftTemplate, setDraftTemplate] = useState<VoterCardTemplateLayout>(() => getStoredVoterCardTemplateLayout());
   const [editing, setEditing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingImportedTemplate, setPendingImportedTemplate] = useState<VoterCardTemplateLayout | null>(null);
   const [activeHandleId, setActiveHandleId] = useState<DragHandleId | null>(null);
   const [showColorPalette, setShowColorPalette] = useState(false);
 
-  const templateForPreview = editing ? draftTemplate : savedTemplate;
+  const templateForPreview = editing ? draftTemplate : pendingImportedTemplate ?? savedTemplate;
 
   useEffect(() => {
     let cancelled = false;
@@ -253,13 +229,6 @@ export function IDTemplatePage() {
     }));
   };
 
-  const updateTextField = (key: TextFieldKey, value: string) => {
-    setDraftTemplate((current) => ({
-      ...current,
-      [key]: value,
-    }));
-  };
-
   const updateColorField = (key: ColorFieldKey, value: string) => {
     setDraftTemplate((current) => ({
       ...current,
@@ -276,6 +245,80 @@ export function IDTemplatePage() {
 
   const openLogoPicker = () => {
     logoInputRef.current?.click();
+  };
+
+  const openTemplatePicker = () => {
+    templateInputRef.current?.click();
+  };
+
+  const handleTemplateImport = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const isJson = file.type === "application/json" || /\.json$/i.test(file.name);
+    const isImage = file.type === "image/png" || file.type === "image/jpeg" || /\.(png|jpe?g)$/i.test(file.name);
+
+    if (isJson) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result !== "string" || reader.result.trim() === "") {
+          setNotice("Unable to read template file.");
+          event.target.value = "";
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(reader.result) as Partial<VoterCardTemplateLayout>;
+          const sanitized = sanitizeVoterCardTemplateLayout(parsed);
+          setPendingImportedTemplate(sanitized);
+          setNotice("Template imported. Choose Use or Discard.");
+        } catch {
+          setNotice("Invalid template file. Please import a valid JSON template.");
+        } finally {
+          event.target.value = "";
+        }
+      };
+
+      reader.onerror = () => {
+        setNotice("Unable to read template file.");
+        event.target.value = "";
+      };
+
+      reader.readAsText(file);
+      return;
+    }
+
+    if (isImage) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result !== "string" || reader.result.trim() === "") {
+          setNotice("Unable to read template image.");
+          event.target.value = "";
+          return;
+        }
+
+        const sanitized = sanitizeVoterCardTemplateLayout({
+          ...savedTemplate,
+          cardTemplateImageDataUrl: reader.result,
+        });
+        setPendingImportedTemplate(sanitized);
+        setNotice("Template image imported. Choose Use or Discard.");
+        event.target.value = "";
+      };
+
+      reader.onerror = () => {
+        setNotice("Unable to read template image.");
+        event.target.value = "";
+      };
+
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    setNotice("Unsupported file type. Import a .json, .png, .jpg, or .jpeg file.");
+    event.target.value = "";
   };
 
   const handleLogoUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -333,6 +376,7 @@ export function IDTemplatePage() {
     saveVoterCardTemplateLayout(sanitized);
     setSavedTemplate(sanitized);
     setDraftTemplate(sanitized);
+    setPendingImportedTemplate(null);
     dragSessionRef.current = null;
     setActiveHandleId(null);
     setEditing(false);
@@ -343,14 +387,36 @@ export function IDTemplatePage() {
     resetVoterCardTemplateLayout();
     setSavedTemplate(DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT);
     setDraftTemplate(DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT);
+    setPendingImportedTemplate(null);
     dragSessionRef.current = null;
     setActiveHandleId(null);
     setEditing(false);
     setNotice("Template reset to the default layout.");
   };
 
+  const applyImportedTemplate = () => {
+    if (!pendingImportedTemplate) {
+      return;
+    }
+
+    saveVoterCardTemplateLayout(pendingImportedTemplate);
+    setSavedTemplate(pendingImportedTemplate);
+    setDraftTemplate(pendingImportedTemplate);
+    setPendingImportedTemplate(null);
+    setNotice("Imported template applied.");
+  };
+
+  const discardImportedTemplate = () => {
+    if (!pendingImportedTemplate) {
+      return;
+    }
+
+    setPendingImportedTemplate(null);
+    setNotice("Imported template discarded.");
+  };
+
   const startDrag = (handle: DragHandle, event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!editing) {
+    if (!editing || handle.movable === false) {
       return;
     }
 
@@ -367,11 +433,54 @@ export function IDTemplatePage() {
     event.preventDefault();
 
     dragSessionRef.current = {
+      mode: "move",
+      handleId: handle.id,
       pointerId: event.pointerId,
       xKey: handle.xKey,
       yKey: handle.yKey,
       startX: draftTemplate[handle.xKey],
       startY: draftTemplate[handle.yKey],
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      canvasRect,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+    };
+
+    setActiveHandleId(handle.id);
+    setNotice(null);
+  };
+
+  const startResize = (handle: DragHandle, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!editing || !handle.widthKey || !handle.heightKey) {
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const canvasRect = canvas.getBoundingClientRect();
+    if (canvasRect.width <= 0 || canvasRect.height <= 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    dragSessionRef.current = {
+      mode: "resize",
+      handleId: handle.id,
+      pointerId: event.pointerId,
+      xKey: handle.xKey,
+      yKey: handle.yKey,
+      widthKey: handle.widthKey,
+      heightKey: handle.heightKey,
+      startX: draftTemplate[handle.xKey],
+      startY: draftTemplate[handle.yKey],
+      startWidth: draftTemplate[handle.widthKey],
+      startHeight: draftTemplate[handle.heightKey],
       startClientX: event.clientX,
       startClientY: event.clientY,
       canvasRect,
@@ -398,9 +507,47 @@ export function IDTemplatePage() {
 
       const deltaX = ((event.clientX - dragSession.startClientX) / dragSession.canvasRect.width) * dragSession.canvasWidth;
       const deltaY = ((event.clientY - dragSession.startClientY) / dragSession.canvasRect.height) * dragSession.canvasHeight;
+
+      if (dragSession.mode === "resize" && dragSession.widthKey && dragSession.heightKey) {
+        const widthKey = dragSession.widthKey;
+        const heightKey = dragSession.heightKey;
+
+        setDraftTemplate((current) => {
+          if (typeof dragSession.startWidth !== "number" || typeof dragSession.startHeight !== "number") {
+            return current;
+          }
+
+          if (widthKey === heightKey) {
+            const delta = Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX : deltaY;
+            const nextSize = clampNumberField(widthKey, Math.round(dragSession.startWidth + delta));
+            if (current[widthKey] === nextSize) {
+              return current;
+            }
+
+            return {
+              ...current,
+              [widthKey]: nextSize,
+            };
+          }
+
+          const nextWidth = clampNumberField(widthKey, Math.round(dragSession.startWidth + deltaX));
+          const nextHeight = clampNumberField(heightKey, Math.round(dragSession.startHeight + deltaY));
+          if (current[widthKey] === nextWidth && current[heightKey] === nextHeight) {
+            return current;
+          }
+
+          return {
+            ...current,
+            [widthKey]: nextWidth,
+            [heightKey]: nextHeight,
+          };
+        });
+
+        return;
+      }
+
       const nextX = clampNumberField(dragSession.xKey, Math.round(dragSession.startX + deltaX));
       const nextY = clampNumberField(dragSession.yKey, Math.round(dragSession.startY + deltaY));
-
       setDraftTemplate((current) => {
         if (current[dragSession.xKey] === nextX && current[dragSession.yKey] === nextY) {
           return current;
@@ -446,14 +593,52 @@ export function IDTemplatePage() {
             </CardDescription>
           </div>
           {!editing ? (
-            <Button type="button" className="inline-flex items-center gap-2" onClick={startEditing}>
-              <Pencil className="h-4 w-4" />
-              Edit Layout
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={templateInputRef}
+                type="file"
+                accept="application/json,.json,image/png,.png,image/jpeg,.jpg,.jpeg"
+                className="hidden"
+                onChange={handleTemplateImport}
+              />
+              <Button
+                type="button"
+                className="inline-flex items-center gap-2"
+                onClick={startEditing}
+                disabled={Boolean(pendingImportedTemplate)}
+              >
+                <Pencil className="h-4 w-4" />
+                Edit Layout
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="inline-flex items-center gap-2"
+                onClick={openTemplatePicker}
+                disabled={Boolean(pendingImportedTemplate)}
+              >
+                <FileUp className="h-4 w-4" />
+                Import ID Template
+              </Button>
+            </div>
           ) : null}
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {pendingImportedTemplate && !editing ? (
+            <div className="space-y-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+              <p>Imported template loaded in preview. Use this template or discard it?</p>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={applyImportedTemplate}>
+                  Use
+                </Button>
+                <Button type="button" variant="outline" onClick={discardImportedTemplate}>
+                  Discard
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
           {notice ? (
             <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
               {notice}
@@ -466,19 +651,9 @@ export function IDTemplatePage() {
               <p className="text-sm text-muted-foreground">
                 Drag the overlays on the preview canvas to move each element, similar to a Canva-style editor.
               </p>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                {TEXT_FIELDS.map((field) => (
-                  <div key={field.key} className="space-y-1">
-                    <Label htmlFor={`template-${field.key}`}>{field.label}</Label>
-                    <Input
-                      id={`template-${field.key}`}
-                      value={draftTemplate[field.key]}
-                      onChange={(event) => updateTextField(field.key, event.target.value)}
-                    />
-                  </div>
-                ))}
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Resize card, QR, and logo by dragging the bottom-right corner handle.
+              </p>
 
               <div className="rounded-lg border bg-muted/20">
                 <button
@@ -549,33 +724,81 @@ export function IDTemplatePage() {
               </div>
 
               <div className="grid gap-3 md:grid-cols-4">
-                {SIZE_FIELDS.map((field) => (
-                  <div key={field.key} className="space-y-1">
-                    <Label htmlFor={`template-${field.key}`}>{field.label}</Label>
-                    <Input
-                      key={`${field.key}-${draftTemplate[field.key]}`}
-                      id={`template-${field.key}`}
-                      type="number"
-                      min={NUMBER_LIMITS[field.key].min}
-                      max={NUMBER_LIMITS[field.key].max}
-                      step={field.step}
-                      defaultValue={draftTemplate[field.key]}
-                      onBlur={(event) => {
-                        if (event.target.value.trim() === "") {
-                          event.target.value = String(draftTemplate[field.key]);
-                          return;
-                        }
+                <div className="space-y-1">
+                  <Label htmlFor="template-cardRadius">Card Radius</Label>
+                  <Input
+                    key={`cardRadius-${draftTemplate.cardRadius}`}
+                    id="template-cardRadius"
+                    type="number"
+                    min={NUMBER_LIMITS.cardRadius.min}
+                    max={NUMBER_LIMITS.cardRadius.max}
+                    step={1}
+                    defaultValue={draftTemplate.cardRadius}
+                    onBlur={(event) => {
+                      if (event.target.value.trim() === "") {
+                        event.target.value = String(draftTemplate.cardRadius);
+                        return;
+                      }
 
-                        updateNumberField(field.key, event.target.value);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.currentTarget.blur();
-                        }
-                      }}
-                    />
-                  </div>
-                ))}
+                      updateNumberField("cardRadius", event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="template-nameFontSize">Name Size</Label>
+                  <Input
+                    key={`nameFontSize-${draftTemplate.nameFontSize}`}
+                    id="template-nameFontSize"
+                    type="number"
+                    min={NUMBER_LIMITS.nameFontSize.min}
+                    max={NUMBER_LIMITS.nameFontSize.max}
+                    step={1}
+                    defaultValue={draftTemplate.nameFontSize}
+                    onBlur={(event) => {
+                      if (event.target.value.trim() === "") {
+                        event.target.value = String(draftTemplate.nameFontSize);
+                        return;
+                      }
+
+                      updateNumberField("nameFontSize", event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="template-branchFontSize">Branch Size</Label>
+                  <Input
+                    key={`branchFontSize-${draftTemplate.branchFontSize}`}
+                    id="template-branchFontSize"
+                    type="number"
+                    min={NUMBER_LIMITS.branchFontSize.min}
+                    max={NUMBER_LIMITS.branchFontSize.max}
+                    step={1}
+                    defaultValue={draftTemplate.branchFontSize}
+                    onBlur={(event) => {
+                      if (event.target.value.trim() === "") {
+                        event.target.value = String(draftTemplate.branchFontSize);
+                        return;
+                      }
+
+                      updateNumberField("branchFontSize", event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
@@ -616,19 +839,27 @@ export function IDTemplatePage() {
                       const height = toPercent(draftTemplate[handle.heightKey], draftTemplate.canvasHeight);
 
                       return (
-                        <button
-                          key={handle.id}
-                          type="button"
-                          className={`pointer-events-auto absolute cursor-grab rounded-md border-2 border-dashed transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 active:cursor-grabbing ${style.outline} ${ringClass}`}
-                          style={{ left, top, width, height }}
-                          onPointerDown={(event) => startDrag(handle, event)}
-                        >
-                          <span
-                            className={`absolute -top-8 left-0 rounded px-2 py-1 text-[11px] font-semibold tracking-wide ${style.badge}`}
+                        <div key={handle.id} className="absolute" style={{ left, top, width, height }}>
+                          <button
+                            type="button"
+                            className={`pointer-events-auto h-full w-full rounded-md border-2 border-dashed transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
+                              handle.movable === false ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+                            } ${style.outline} ${ringClass}`}
+                            onPointerDown={handle.movable === false ? undefined : (event) => startDrag(handle, event)}
                           >
-                            {handle.label}
-                          </span>
-                        </button>
+                            <span
+                              className={`absolute -top-8 left-0 rounded px-2 py-1 text-[11px] font-semibold tracking-wide ${style.badge}`}
+                            >
+                              {handle.label}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Resize ${handle.label}`}
+                            className="pointer-events-auto absolute -bottom-2 -right-2 h-5 w-5 cursor-nwse-resize rounded border-2 border-white bg-slate-700 shadow-sm"
+                            onPointerDown={(event) => startResize(handle, event)}
+                          />
+                        </div>
                       );
                     }
 
