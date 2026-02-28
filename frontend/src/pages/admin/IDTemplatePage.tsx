@@ -35,13 +35,24 @@ type SizeFieldKey =
   | "logoHeight"
   | "nameFontSize"
   | "branchFontSize";
-type NumberFieldKey = PositionFieldKey | SizeFieldKey;
+type DesignNumberFieldKey =
+  | "headerHeight"
+  | "headerTextX"
+  | "headerTextY"
+  | "footerY"
+  | "cardBorderWidth"
+  | "qrBorderWidth";
+type NumberFieldKey = PositionFieldKey | SizeFieldKey | DesignNumberFieldKey;
 type ColorFieldKey =
+  | "backgroundColor"
+  | "headerColor"
+  | "headerTextColor"
   | "cardFillColor"
   | "cardBorderColor"
   | "qrBorderColor"
   | "nameColor"
-  | "branchColor";
+  | "branchColor"
+  | "footerColor";
 type DragHandleId = "logo" | "card" | "qr" | "name" | "branch";
 
 const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
@@ -62,14 +73,24 @@ const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   logoHeight: { min: 30, max: 600 },
   nameFontSize: { min: 16, max: 140 },
   branchFontSize: { min: 14, max: 120 },
+  headerHeight: { min: 70, max: 220 },
+  headerTextX: { min: 20, max: 1500 },
+  headerTextY: { min: 30, max: 500 },
+  footerY: { min: 20, max: 1300 },
+  cardBorderWidth: { min: 0, max: 20 },
+  qrBorderWidth: { min: 0, max: 12 },
 };
 
 const COLOR_FIELDS: Array<{ key: ColorFieldKey; label: string }> = [
+  { key: "backgroundColor", label: "Canvas Background" },
+  { key: "headerColor", label: "Header Background" },
+  { key: "headerTextColor", label: "Header Text" },
   { key: "cardFillColor", label: "Card Background" },
   { key: "cardBorderColor", label: "Card Border" },
   { key: "qrBorderColor", label: "QR Border" },
   { key: "nameColor", label: "Name Text" },
   { key: "branchColor", label: "Branch Text" },
+  { key: "footerColor", label: "Footer Text" },
 ];
 
 interface DragHandle {
@@ -166,6 +187,7 @@ function toColorPickerValue(value: string, fallback: string) {
 export function IDTemplatePage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const cardImageInputRef = useRef<HTMLInputElement | null>(null);
   const templateInputRef = useRef<HTMLInputElement | null>(null);
   const dragSessionRef = useRef<DragSession | null>(null);
   const [savedTemplate, setSavedTemplate] = useState<VoterCardTemplateLayout>(() => getStoredVoterCardTemplateLayout());
@@ -250,6 +272,10 @@ export function IDTemplatePage() {
 
   const openLogoPicker = () => {
     logoInputRef.current?.click();
+  };
+
+  const openCardImagePicker = () => {
+    cardImageInputRef.current?.click();
   };
 
   const openTemplatePicker = () => {
@@ -368,12 +394,55 @@ export function IDTemplatePage() {
     reader.readAsDataURL(file);
   };
 
+  const handleCardBackgroundUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setNotice("Please choose an image file for the card background.");
+      event.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string" || reader.result.trim() === "") {
+        setNotice("Unable to load the selected card background image.");
+        event.target.value = "";
+        return;
+      }
+
+      setDraftTemplate((current) => ({
+        ...current,
+        cardTemplateImageDataUrl: reader.result as string,
+      }));
+      setNotice("Card background image uploaded.");
+      event.target.value = "";
+    };
+    reader.onerror = () => {
+      setNotice("Unable to load the selected card background image.");
+      event.target.value = "";
+    };
+
+    reader.readAsDataURL(file);
+  };
+
   const removeLogo = () => {
     setDraftTemplate((current) => ({
       ...current,
       logoDataUrl: "",
     }));
     setNotice("Logo removed from the template.");
+  };
+
+  const removeCardBackground = () => {
+    setDraftTemplate((current) => ({
+      ...current,
+      cardTemplateImageDataUrl: "",
+    }));
+    setNotice("Card background image removed.");
   };
 
   const cancelEditing = () => {
@@ -711,6 +780,47 @@ export function IDTemplatePage() {
               </div>
 
               <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                <input
+                  ref={cardImageInputRef}
+                  type="file"
+                  accept="image/png,.png,image/jpeg,.jpg,.jpeg"
+                  className="hidden"
+                  onChange={handleCardBackgroundUpload}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="inline-flex items-center gap-2"
+                    onClick={openCardImagePicker}
+                  >
+                    <ImagePlus className="h-4 w-4" />
+                    Upload Card Background
+                  </Button>
+                  {draftTemplate.cardTemplateImageDataUrl ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="inline-flex items-center gap-2"
+                      onClick={removeCardBackground}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remove Card Background
+                    </Button>
+                  ) : null}
+                </div>
+                {draftTemplate.cardTemplateImageDataUrl ? (
+                  <img
+                    src={draftTemplate.cardTemplateImageDataUrl}
+                    alt="Card background preview"
+                    className="h-20 max-w-64 rounded border bg-white object-cover p-1"
+                  />
+                ) : (
+                  <p className="text-xs text-muted-foreground">No card background image uploaded.</p>
+                )}
+              </div>
+
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
                 <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
                 <div className="flex flex-wrap items-center gap-2">
                   <Button type="button" variant="outline" className="inline-flex items-center gap-2" onClick={openLogoPicker}>
@@ -735,7 +845,7 @@ export function IDTemplatePage() {
                 )}
               </div>
 
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-3">
                 <div className="space-y-1">
                   <Label htmlFor="template-cardRadius">Card Radius</Label>
                   <Input
@@ -753,6 +863,56 @@ export function IDTemplatePage() {
                       }
 
                       updateNumberField("cardRadius", event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="template-cardBorderWidth">Card Border Width</Label>
+                  <Input
+                    key={`cardBorderWidth-${draftTemplate.cardBorderWidth}`}
+                    id="template-cardBorderWidth"
+                    type="number"
+                    min={NUMBER_LIMITS.cardBorderWidth.min}
+                    max={NUMBER_LIMITS.cardBorderWidth.max}
+                    step={1}
+                    defaultValue={draftTemplate.cardBorderWidth}
+                    onBlur={(event) => {
+                      if (event.target.value.trim() === "") {
+                        event.target.value = String(draftTemplate.cardBorderWidth);
+                        return;
+                      }
+
+                      updateNumberField("cardBorderWidth", event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="template-qrBorderWidth">QR Border Width</Label>
+                  <Input
+                    key={`qrBorderWidth-${draftTemplate.qrBorderWidth}`}
+                    id="template-qrBorderWidth"
+                    type="number"
+                    min={NUMBER_LIMITS.qrBorderWidth.min}
+                    max={NUMBER_LIMITS.qrBorderWidth.max}
+                    step={1}
+                    defaultValue={draftTemplate.qrBorderWidth}
+                    onBlur={(event) => {
+                      if (event.target.value.trim() === "") {
+                        event.target.value = String(draftTemplate.qrBorderWidth);
+                        return;
+                      }
+
+                      updateNumberField("qrBorderWidth", event.target.value);
                     }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
@@ -811,6 +971,106 @@ export function IDTemplatePage() {
                     }}
                   />
                 </div>
+                <div className="space-y-1">
+                  <Label htmlFor="template-headerHeight">Header Height</Label>
+                  <Input
+                    key={`headerHeight-${draftTemplate.headerHeight}`}
+                    id="template-headerHeight"
+                    type="number"
+                    min={NUMBER_LIMITS.headerHeight.min}
+                    max={NUMBER_LIMITS.headerHeight.max}
+                    step={1}
+                    defaultValue={draftTemplate.headerHeight}
+                    onBlur={(event) => {
+                      if (event.target.value.trim() === "") {
+                        event.target.value = String(draftTemplate.headerHeight);
+                        return;
+                      }
+
+                      updateNumberField("headerHeight", event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="template-headerTextX">Header Text X</Label>
+                  <Input
+                    key={`headerTextX-${draftTemplate.headerTextX}`}
+                    id="template-headerTextX"
+                    type="number"
+                    min={NUMBER_LIMITS.headerTextX.min}
+                    max={NUMBER_LIMITS.headerTextX.max}
+                    step={1}
+                    defaultValue={draftTemplate.headerTextX}
+                    onBlur={(event) => {
+                      if (event.target.value.trim() === "") {
+                        event.target.value = String(draftTemplate.headerTextX);
+                        return;
+                      }
+
+                      updateNumberField("headerTextX", event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="template-headerTextY">Header Text Y</Label>
+                  <Input
+                    key={`headerTextY-${draftTemplate.headerTextY}`}
+                    id="template-headerTextY"
+                    type="number"
+                    min={NUMBER_LIMITS.headerTextY.min}
+                    max={NUMBER_LIMITS.headerTextY.max}
+                    step={1}
+                    defaultValue={draftTemplate.headerTextY}
+                    onBlur={(event) => {
+                      if (event.target.value.trim() === "") {
+                        event.target.value = String(draftTemplate.headerTextY);
+                        return;
+                      }
+
+                      updateNumberField("headerTextY", event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="template-footerY">Footer Y</Label>
+                  <Input
+                    key={`footerY-${draftTemplate.footerY}`}
+                    id="template-footerY"
+                    type="number"
+                    min={NUMBER_LIMITS.footerY.min}
+                    max={NUMBER_LIMITS.footerY.max}
+                    step={1}
+                    defaultValue={draftTemplate.footerY}
+                    onBlur={(event) => {
+                      if (event.target.value.trim() === "") {
+                        event.target.value = String(draftTemplate.footerY);
+                        return;
+                      }
+
+                      updateNumberField("footerY", event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </div>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
@@ -842,6 +1102,7 @@ export function IDTemplatePage() {
                     (handle) => {
                     const style = HANDLE_STYLES[handle.id];
                     const isActive = activeHandleId === handle.id;
+                    const layerClass = handle.id === "card" ? "z-10" : handle.id === "logo" ? "z-30" : "z-20";
                     const left = toPercent(draftTemplate[handle.xKey], draftTemplate.canvasWidth);
                     const top = toPercent(draftTemplate[handle.yKey], draftTemplate.canvasHeight);
                     const ringClass = isActive ? `ring-2 ${style.active}` : "";
@@ -851,11 +1112,13 @@ export function IDTemplatePage() {
                       const height = toPercent(draftTemplate[handle.heightKey], draftTemplate.canvasHeight);
 
                       return (
-                        <div key={handle.id} className="absolute" style={{ left, top, width, height }}>
+                        <div key={handle.id} className={`absolute ${layerClass}`} style={{ left, top, width, height }}>
                           <button
                             type="button"
-                            className={`pointer-events-auto h-full w-full rounded-md border-2 border-dashed transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
-                              handle.movable === false ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+                            className={`h-full w-full rounded-md border-2 border-dashed transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
+                              handle.movable === false
+                                ? "pointer-events-none cursor-default"
+                                : "pointer-events-auto cursor-grab active:cursor-grabbing"
                             } ${style.outline} ${ringClass}`}
                             onPointerDown={handle.movable === false ? undefined : (event) => startDrag(handle, event)}
                           >
@@ -879,7 +1142,7 @@ export function IDTemplatePage() {
                       <button
                         key={handle.id}
                         type="button"
-                        className={`pointer-events-auto absolute min-w-16 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border px-2.5 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 active:cursor-grabbing ${style.point} ${ringClass}`}
+                        className={`pointer-events-auto absolute ${layerClass} min-w-16 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border px-2.5 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 active:cursor-grabbing ${style.point} ${ringClass}`}
                         style={{ left, top }}
                         onPointerDown={(event) => startDrag(handle, event)}
                       >
