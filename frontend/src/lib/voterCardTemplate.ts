@@ -251,6 +251,27 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
+interface DetectedQrBounds {
+  x: number;
+  y: number;
+  size: number;
+}
+
+interface ImageBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface DetectedTextLayout {
+  textX: number;
+  nameBaselineY: number;
+  branchBaselineY: number;
+  nameFontSize: number;
+  branchFontSize: number;
+}
+
 function trimTextToWidth(context: CanvasRenderingContext2D, value: string, maxWidth: number) {
   if (context.measureText(value).width <= maxWidth) {
     return value;
@@ -325,6 +346,468 @@ function wrapTextToLines(
   }
 
   return lines.slice(0, maxLines);
+}
+
+function getPointX(point: unknown) {
+  if (point && typeof point === "object") {
+    const candidate = point as { x?: number; getX?: () => number };
+    if (typeof candidate.getX === "function") {
+      return candidate.getX();
+    }
+
+    if (typeof candidate.x === "number") {
+      return candidate.x;
+    }
+  }
+
+  return null;
+}
+
+function getPointY(point: unknown) {
+  if (point && typeof point === "object") {
+    const candidate = point as { y?: number; getY?: () => number };
+    if (typeof candidate.getY === "function") {
+      return candidate.getY();
+    }
+
+    if (typeof candidate.y === "number") {
+      return candidate.y;
+    }
+  }
+
+  return null;
+}
+
+function detectCardBoundsFromBackground(rgba: Uint8ClampedArray, width: number, height: number): ImageBounds | null {
+  const step = Math.max(1, Math.round(Math.min(width, height) / 140));
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  let count = 0;
+
+  for (let x = 0; x < width; x += step) {
+    const topIndex = x * 4;
+    red += rgba[topIndex];
+    green += rgba[topIndex + 1];
+    blue += rgba[topIndex + 2];
+    count += 1;
+
+    const bottomIndex = ((height - 1) * width + x) * 4;
+    red += rgba[bottomIndex];
+    green += rgba[bottomIndex + 1];
+    blue += rgba[bottomIndex + 2];
+    count += 1;
+  }
+
+  for (let y = 0; y < height; y += step) {
+    const leftIndex = y * width * 4;
+    red += rgba[leftIndex];
+    green += rgba[leftIndex + 1];
+    blue += rgba[leftIndex + 2];
+    count += 1;
+
+    const rightIndex = (y * width + (width - 1)) * 4;
+    red += rgba[rightIndex];
+    green += rgba[rightIndex + 1];
+    blue += rgba[rightIndex + 2];
+    count += 1;
+  }
+
+  if (count === 0) {
+    return null;
+  }
+
+  const baseRed = red / count;
+  const baseGreen = green / count;
+  const baseBlue = blue / count;
+  const threshold = 32;
+
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      if (rgba[index + 3] < 10) {
+        continue;
+      }
+
+      const distance =
+        Math.abs(rgba[index] - baseRed) +
+        Math.abs(rgba[index + 1] - baseGreen) +
+        Math.abs(rgba[index + 2] - baseBlue);
+      if (distance <= threshold) {
+        continue;
+      }
+
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (maxX < minX || maxY < minY) {
+    return null;
+  }
+
+  minX = Math.max(0, minX - 2);
+  minY = Math.max(0, minY - 2);
+  maxX = Math.min(width - 1, maxX + 2);
+  maxY = Math.min(height - 1, maxY + 2);
+
+  const boundsWidth = maxX - minX + 1;
+  const boundsHeight = maxY - minY + 1;
+  if (boundsWidth < width * 0.35 || boundsHeight < height * 0.25) {
+    return null;
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width: boundsWidth,
+    height: boundsHeight,
+  };
+}
+
+async function detectQrBoundsWithZxing(imageSrc: string): Promise<DetectedQrBounds | null> {
+  try {
+    const { BrowserQRCodeReader } = await import("@zxing/browser");
+    const reader = new BrowserQRCodeReader();
+    const result = await reader.decodeFromImageUrl(imageSrc);
+    const rawPoints = result?.getResultPoints?.();
+    if (!rawPoints || rawPoints.length < 3) {
+      return null;
+    }
+
+    const xs: number[] = [];
+    const ys: number[] = [];
+    rawPoints.forEach((point) => {
+      const x = getPointX(point);
+      const y = getPointY(point);
+      if (typeof x === "number" && typeof y === "number") {
+        xs.push(x);
+        ys.push(y);
+      }
+    });
+
+    if (xs.length < 3 || ys.length < 3) {
+      return null;
+    }
+
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const pointSpan = Math.max(maxX - minX, maxY - minY);
+    const padding = Math.max(6, Math.round(pointSpan * 0.35));
+    const size = Math.max(24, Math.round(pointSpan + padding * 2));
+
+    return {
+      x: Math.max(0, Math.round(minX - padding)),
+      y: Math.max(0, Math.round(minY - padding)),
+      size,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function detectQrBoundsHeuristic(luma: Uint8ClampedArray, width: number, height: number): DetectedQrBounds | null {
+  const minSide = Math.min(width, height);
+  const minSize = Math.max(48, Math.round(minSide * 0.12));
+  const maxSize = Math.max(minSize, Math.round(minSide * 0.52));
+  const sizes: number[] = [];
+  for (let i = 0; i < 9; i += 1) {
+    const ratio = i / 8;
+    sizes.push(Math.round(minSize + (maxSize - minSize) * ratio));
+  }
+
+  let best: DetectedQrBounds | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const size of sizes) {
+    const sampleGrid = 11;
+    const sampleStep = size / (sampleGrid - 1);
+    const stride = Math.max(8, Math.round(size / 7));
+
+    for (let y = 0; y <= height - size; y += stride) {
+      for (let x = 0; x <= width - size; x += stride) {
+        let sum = 0;
+        let sumSquares = 0;
+        let dark = 0;
+        let transitions = 0;
+        let prevRow: number[] | null = null;
+
+        for (let gy = 0; gy < sampleGrid; gy += 1) {
+          const row: number[] = [];
+          const py = Math.min(height - 1, Math.round(y + gy * sampleStep));
+
+          for (let gx = 0; gx < sampleGrid; gx += 1) {
+            const px = Math.min(width - 1, Math.round(x + gx * sampleStep));
+            const value = luma[(py * width + px) * 4];
+            row.push(value);
+            sum += value;
+            sumSquares += value * value;
+            if (value < 140) {
+              dark += 1;
+            }
+            if (gx > 0 && Math.abs(row[gx] - row[gx - 1]) > 28) {
+              transitions += 1;
+            }
+          }
+
+          if (prevRow) {
+            for (let gx = 0; gx < sampleGrid; gx += 1) {
+              if (Math.abs(row[gx] - prevRow[gx]) > 28) {
+                transitions += 1;
+              }
+            }
+          }
+
+          prevRow = row;
+        }
+
+        const samples = sampleGrid * sampleGrid;
+        const mean = sum / samples;
+        const variance = sumSquares / samples - mean * mean;
+        const darkRatio = dark / samples;
+        const balanceScore = 1 - Math.min(1, Math.abs(darkRatio - 0.5) * 2);
+        const transitionScore = transitions / (sampleGrid * (sampleGrid - 1) * 2);
+        const centralityPenalty = Math.abs((x + size / 2) / width - 0.35) * 20;
+        const score = variance * 0.42 + transitionScore * 180 + balanceScore * 45 - centralityPenalty;
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = { x, y, size };
+        }
+      }
+    }
+  }
+
+  if (!best || bestScore < 35) {
+    return null;
+  }
+
+  return best;
+}
+
+function detectTextLayout(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  qr: DetectedQrBounds | null
+): DetectedTextLayout | null {
+  const leftBoundary = qr
+    ? Math.min(width - 2, Math.max(0, qr.x + qr.size + Math.round(width * 0.03)))
+    : Math.round(width * 0.33);
+  const rightBoundary = Math.max(leftBoundary + 20, width - Math.round(width * 0.04));
+  const topBoundary = Math.round(height * 0.14);
+  const bottomBoundary = Math.max(topBoundary + 20, height - Math.round(height * 0.08));
+  const regionWidth = rightBoundary - leftBoundary;
+  if (regionWidth < 40) {
+    return null;
+  }
+
+  let luminanceSum = 0;
+  let luminanceSquares = 0;
+  let luminanceCount = 0;
+  for (let y = topBoundary; y <= bottomBoundary; y += 1) {
+    for (let x = leftBoundary; x <= rightBoundary; x += 1) {
+      const index = (y * width + x) * 4;
+      const value = (rgba[index] * 0.2126 + rgba[index + 1] * 0.7152 + rgba[index + 2] * 0.0722) | 0;
+      luminanceSum += value;
+      luminanceSquares += value * value;
+      luminanceCount += 1;
+    }
+  }
+
+  const mean = luminanceCount > 0 ? luminanceSum / luminanceCount : 140;
+  const variance = luminanceCount > 0 ? luminanceSquares / luminanceCount - mean * mean : 900;
+  const stdDev = Math.sqrt(Math.max(0, variance));
+  const darkThreshold = Math.max(70, Math.min(190, Math.round(mean - stdDev * 0.32)));
+  const rowCounts: number[] = new Array(height).fill(0);
+  for (let y = topBoundary; y <= bottomBoundary; y += 1) {
+    let rowDark = 0;
+    for (let x = leftBoundary; x <= rightBoundary; x += 1) {
+      const index = (y * width + x) * 4;
+      const value = (rgba[index] * 0.2126 + rgba[index + 1] * 0.7152 + rgba[index + 2] * 0.0722) | 0;
+      if (value < darkThreshold) {
+        rowDark += 1;
+      }
+    }
+    rowCounts[y] = rowDark;
+  }
+
+  const rowThreshold = Math.max(8, Math.round(regionWidth * 0.028));
+  const clusters: Array<{ start: number; end: number; peak: number }> = [];
+  let activeStart = -1;
+  let activePeak = 0;
+
+  for (let y = topBoundary; y <= bottomBoundary; y += 1) {
+    const count = rowCounts[y];
+    if (count >= rowThreshold) {
+      if (activeStart === -1) {
+        activeStart = y;
+        activePeak = count;
+      } else {
+        activePeak = Math.max(activePeak, count);
+      }
+    } else if (activeStart !== -1) {
+      const end = y - 1;
+      if (end - activeStart + 1 >= 3) {
+        clusters.push({ start: activeStart, end, peak: activePeak });
+      }
+      activeStart = -1;
+      activePeak = 0;
+    }
+  }
+
+  if (activeStart !== -1) {
+    const end = bottomBoundary;
+    if (end - activeStart + 1 >= 3) {
+      clusters.push({ start: activeStart, end, peak: activePeak });
+    }
+  }
+
+  if (clusters.length === 0) {
+    return null;
+  }
+
+  clusters.sort((a, b) => a.start - b.start);
+  const nameCluster = clusters[0];
+  const branchCluster = clusters[1] ?? {
+    start: nameCluster.end + Math.max(10, Math.round((nameCluster.end - nameCluster.start + 1) * 0.8)),
+    end: nameCluster.end + Math.max(20, Math.round((nameCluster.end - nameCluster.start + 1) * 1.8)),
+    peak: Math.max(1, Math.round(nameCluster.peak * 0.7)),
+  };
+
+  const clusterTop = Math.min(nameCluster.start, branchCluster.start);
+  const clusterBottom = Math.max(nameCluster.end, branchCluster.end);
+  const columnThreshold = Math.max(2, Math.round((clusterBottom - clusterTop + 1) * 0.16));
+
+  let textX = leftBoundary;
+  for (let x = leftBoundary; x <= rightBoundary; x += 1) {
+    let count = 0;
+    for (let y = clusterTop; y <= clusterBottom; y += 1) {
+      const index = (y * width + x) * 4;
+      const value = (rgba[index] * 0.2126 + rgba[index + 1] * 0.7152 + rgba[index + 2] * 0.0722) | 0;
+      if (value < darkThreshold) {
+        count += 1;
+      }
+    }
+    if (count >= columnThreshold) {
+      textX = x;
+      break;
+    }
+  }
+
+  const nameHeight = Math.max(3, nameCluster.end - nameCluster.start + 1);
+  const branchHeight = Math.max(3, branchCluster.end - branchCluster.start + 1);
+  const nameBaselineY = nameCluster.end + Math.max(2, Math.round(nameHeight * 0.28));
+  const branchBaselineY = branchCluster.end + Math.max(2, Math.round(branchHeight * 0.28));
+
+  return {
+    textX,
+    nameBaselineY,
+    branchBaselineY,
+    nameFontSize: Math.max(10, Math.round(nameHeight * 1.8)),
+    branchFontSize: Math.max(10, Math.round(branchHeight * 1.8)),
+  };
+}
+
+export async function deriveTemplateLayoutFromReferenceImage(
+  baseLayout: VoterCardTemplateLayout,
+  imageDataUrl: string
+) {
+  const image = await loadImage(imageDataUrl, "Unable to analyze template image.");
+  const width = Math.max(1, image.naturalWidth || image.width);
+  const height = Math.max(1, image.naturalHeight || image.height);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Unable to analyze template image.");
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+  const fullImageData = context.getImageData(0, 0, width, height).data;
+  const cardBounds = detectCardBoundsFromBackground(fullImageData, width, height);
+
+  let analysisWidth = width;
+  let analysisHeight = height;
+  let analysisData = fullImageData;
+  let analysisImageDataUrl = imageDataUrl;
+
+  if (cardBounds) {
+    const croppedCanvas = document.createElement("canvas");
+    croppedCanvas.width = cardBounds.width;
+    croppedCanvas.height = cardBounds.height;
+    const croppedContext = croppedCanvas.getContext("2d");
+    if (!croppedContext) {
+      throw new Error("Unable to analyze template image.");
+    }
+
+    croppedContext.drawImage(
+      image,
+      cardBounds.x,
+      cardBounds.y,
+      cardBounds.width,
+      cardBounds.height,
+      0,
+      0,
+      cardBounds.width,
+      cardBounds.height
+    );
+    analysisWidth = cardBounds.width;
+    analysisHeight = cardBounds.height;
+    analysisData = croppedContext.getImageData(0, 0, analysisWidth, analysisHeight).data;
+    analysisImageDataUrl = croppedCanvas.toDataURL("image/png");
+  }
+
+  const qrBoundsFromReader = await detectQrBoundsWithZxing(analysisImageDataUrl);
+  const qrBounds = qrBoundsFromReader ?? detectQrBoundsHeuristic(analysisData, analysisWidth, analysisHeight);
+  let textLayout = detectTextLayout(analysisData, analysisWidth, analysisHeight, qrBounds);
+
+  if (!textLayout && qrBounds) {
+    const fallbackTextX = Math.min(analysisWidth - 20, qrBounds.x + qrBounds.size + Math.round(analysisWidth * 0.05));
+    const fallbackNameY = Math.round(qrBounds.y + qrBounds.size * 0.42);
+    const fallbackBranchY = fallbackNameY + Math.max(20, Math.round(analysisHeight * 0.14));
+    textLayout = {
+      textX: fallbackTextX,
+      nameBaselineY: fallbackNameY,
+      branchBaselineY: fallbackBranchY,
+      nameFontSize: Math.max(18, Math.round(analysisHeight * 0.095)),
+      branchFontSize: Math.max(14, Math.round(analysisHeight * 0.078)),
+    };
+  }
+
+  const scaleX = baseLayout.cardWidth / analysisWidth;
+  const scaleY = baseLayout.cardHeight / analysisHeight;
+  const mapped: Partial<VoterCardTemplateLayout> = {
+    ...baseLayout,
+    cardTemplateImageDataUrl: analysisImageDataUrl,
+  };
+
+  if (qrBounds) {
+    mapped.qrX = Math.round(baseLayout.cardX + qrBounds.x * scaleX);
+    mapped.qrY = Math.round(baseLayout.cardY + qrBounds.y * scaleY);
+    mapped.qrSize = Math.max(24, Math.round(qrBounds.size * ((scaleX + scaleY) / 2)));
+  }
+
+  if (textLayout) {
+    mapped.textX = Math.round(baseLayout.cardX + textLayout.textX * scaleX);
+    mapped.nameY = Math.round(baseLayout.cardY + textLayout.nameBaselineY * scaleY);
+    mapped.branchY = Math.round(baseLayout.cardY + textLayout.branchBaselineY * scaleY);
+    mapped.nameFontSize = Math.max(10, Math.round(textLayout.nameFontSize * scaleY));
+    mapped.branchFontSize = Math.max(10, Math.round(textLayout.branchFontSize * scaleY));
+  }
+
+  return sanitizeVoterCardTemplateLayout(mapped);
 }
 
 interface RenderVoterQrCardOptions {

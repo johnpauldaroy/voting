@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import {
   DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT,
   buildVoterQrCardCanvas,
+  deriveTemplateLayoutFromReferenceImage,
   getStoredVoterCardTemplateLayout,
   resetVoterCardTemplateLayout,
   sanitizeVoterCardTemplateLayout,
@@ -176,6 +177,8 @@ export function IDTemplatePage() {
   const [showColorPalette, setShowColorPalette] = useState(false);
 
   const templateForPreview = editing ? draftTemplate : pendingImportedTemplate ?? savedTemplate;
+  const previewName = "Sample Name";
+  const previewBranch = "Sample Branch";
 
   useEffect(() => {
     let cancelled = false;
@@ -188,7 +191,9 @@ export function IDTemplatePage() {
 
       const previewCanvas = await buildVoterQrCardCanvas({
         layout: templateForPreview,
-        showData: false,
+        voterName: previewName,
+        branch: previewBranch,
+        showData: true,
       });
 
       if (cancelled || !canvasRef.current) {
@@ -211,7 +216,7 @@ export function IDTemplatePage() {
     return () => {
       cancelled = true;
     };
-  }, [templateForPreview]);
+  }, [templateForPreview, previewBranch, previewName]);
 
   const updateNumberField = (key: NumberFieldKey, value: string) => {
     if (value.trim() === "") {
@@ -291,20 +296,27 @@ export function IDTemplatePage() {
     }
 
     if (isImage) {
+      setNotice("Scanning template image...");
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         if (typeof reader.result !== "string" || reader.result.trim() === "") {
           setNotice("Unable to read template image.");
           event.target.value = "";
           return;
         }
 
-        const sanitized = sanitizeVoterCardTemplateLayout({
-          ...savedTemplate,
-          cardTemplateImageDataUrl: reader.result,
-        });
-        setPendingImportedTemplate(sanitized);
-        setNotice("Template image imported. Choose Use or Discard.");
+        try {
+          const detectedLayout = await deriveTemplateLayoutFromReferenceImage(savedTemplate, reader.result);
+          setPendingImportedTemplate(detectedLayout);
+          setNotice("Template image imported with detected QR/text positions. Choose Use or Discard.");
+        } catch {
+          const sanitized = sanitizeVoterCardTemplateLayout({
+            ...savedTemplate,
+            cardTemplateImageDataUrl: reader.result,
+          });
+          setPendingImportedTemplate(sanitized);
+          setNotice("Template image imported. Could not auto-detect all positions. Choose Use or Discard.");
+        }
         event.target.value = "";
       };
 
