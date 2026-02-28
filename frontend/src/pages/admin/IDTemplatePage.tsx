@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Pencil } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { ChevronDown, ImagePlus, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,8 @@ import {
 type PositionFieldKey =
   | "headerTextX"
   | "headerTextY"
+  | "logoX"
+  | "logoY"
   | "cardX"
   | "cardY"
   | "qrX"
@@ -26,14 +28,26 @@ type PositionFieldKey =
   | "branchY"
   | "footerY";
 
-type SizeFieldKey = "cardWidth" | "cardHeight" | "cardRadius" | "qrSize";
+type SizeFieldKey = "cardWidth" | "cardHeight" | "cardRadius" | "qrSize" | "logoWidth" | "logoHeight";
 type NumberFieldKey = PositionFieldKey | SizeFieldKey;
 type TextFieldKey = "headerText" | "footerText";
-type DragHandleId = "header" | "card" | "qr" | "name" | "branch" | "footer";
+type ColorFieldKey =
+  | "backgroundColor"
+  | "headerColor"
+  | "headerTextColor"
+  | "cardFillColor"
+  | "cardBorderColor"
+  | "qrBorderColor"
+  | "nameColor"
+  | "branchColor"
+  | "footerColor";
+type DragHandleId = "header" | "logo" | "card" | "qr" | "name" | "branch" | "footer";
 
 const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   headerTextX: { min: 20, max: 1500 },
   headerTextY: { min: 30, max: 500 },
+  logoX: { min: 20, max: 1800 },
+  logoY: { min: 10, max: 1300 },
   cardX: { min: 20, max: 1700 },
   cardY: { min: 20, max: 1300 },
   qrX: { min: 20, max: 1800 },
@@ -46,6 +60,8 @@ const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   cardHeight: { min: 220, max: 1200 },
   cardRadius: { min: 0, max: 200 },
   qrSize: { min: 120, max: 900 },
+  logoWidth: { min: 60, max: 900 },
+  logoHeight: { min: 30, max: 600 },
 };
 
 const SIZE_FIELDS: Array<{ key: SizeFieldKey; label: string; step: number }> = [
@@ -53,11 +69,25 @@ const SIZE_FIELDS: Array<{ key: SizeFieldKey; label: string; step: number }> = [
   { key: "cardHeight", label: "Card Height", step: 1 },
   { key: "cardRadius", label: "Card Radius", step: 1 },
   { key: "qrSize", label: "QR Size", step: 1 },
+  { key: "logoWidth", label: "Logo Width", step: 1 },
+  { key: "logoHeight", label: "Logo Height", step: 1 },
 ];
 
 const TEXT_FIELDS: Array<{ key: TextFieldKey; label: string }> = [
   { key: "headerText", label: "Header Text" },
   { key: "footerText", label: "Footer Text" },
+];
+
+const COLOR_FIELDS: Array<{ key: ColorFieldKey; label: string }> = [
+  { key: "backgroundColor", label: "Background" },
+  { key: "headerColor", label: "Header Background" },
+  { key: "headerTextColor", label: "Header Text" },
+  { key: "cardFillColor", label: "Card Background" },
+  { key: "cardBorderColor", label: "Card Border" },
+  { key: "qrBorderColor", label: "QR Border" },
+  { key: "nameColor", label: "Name Text" },
+  { key: "branchColor", label: "Branch Text" },
+  { key: "footerColor", label: "Footer Text" },
 ];
 
 interface DragHandle {
@@ -71,6 +101,7 @@ interface DragHandle {
 
 const DRAG_HANDLES: DragHandle[] = [
   { id: "header", label: "Header", xKey: "headerTextX", yKey: "headerTextY" },
+  { id: "logo", label: "Logo", xKey: "logoX", yKey: "logoY", widthKey: "logoWidth", heightKey: "logoHeight" },
   { id: "card", label: "Card", xKey: "cardX", yKey: "cardY", widthKey: "cardWidth", heightKey: "cardHeight" },
   { id: "qr", label: "QR", xKey: "qrX", yKey: "qrY", widthKey: "qrSize", heightKey: "qrSize" },
   { id: "name", label: "Name", xKey: "textX", yKey: "nameY" },
@@ -92,6 +123,12 @@ const HANDLE_STYLES: Record<
     badge: "bg-indigo-600 text-white",
     point: "border-indigo-500 bg-indigo-50 text-indigo-700",
     active: "ring-indigo-300",
+  },
+  logo: {
+    outline: "border-cyan-500/80 bg-cyan-500/10",
+    badge: "bg-cyan-600 text-white",
+    point: "border-cyan-500 bg-cyan-50 text-cyan-700",
+    active: "ring-cyan-300",
   },
   card: {
     outline: "border-emerald-500/80 bg-emerald-500/10",
@@ -147,14 +184,20 @@ function toPercent(value: number, total: number) {
   return `${(value / Math.max(1, total)) * 100}%`;
 }
 
+function toColorPickerValue(value: string, fallback: string) {
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
+}
+
 export function IDTemplatePage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
   const dragSessionRef = useRef<DragSession | null>(null);
   const [savedTemplate, setSavedTemplate] = useState<VoterCardTemplateLayout>(() => getStoredVoterCardTemplateLayout());
   const [draftTemplate, setDraftTemplate] = useState<VoterCardTemplateLayout>(() => getStoredVoterCardTemplateLayout());
   const [editing, setEditing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeHandleId, setActiveHandleId] = useState<DragHandleId | null>(null);
+  const [showColorPalette, setShowColorPalette] = useState(false);
 
   const templateForPreview = editing ? draftTemplate : savedTemplate;
 
@@ -195,6 +238,10 @@ export function IDTemplatePage() {
   }, [templateForPreview]);
 
   const updateNumberField = (key: NumberFieldKey, value: string) => {
+    if (value.trim() === "") {
+      return;
+    }
+
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) {
       return;
@@ -213,10 +260,65 @@ export function IDTemplatePage() {
     }));
   };
 
+  const updateColorField = (key: ColorFieldKey, value: string) => {
+    setDraftTemplate((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  };
+
   const startEditing = () => {
     setDraftTemplate(savedTemplate);
     setEditing(true);
+    setShowColorPalette(false);
     setNotice(null);
+  };
+
+  const openLogoPicker = () => {
+    logoInputRef.current?.click();
+  };
+
+  const handleLogoUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setNotice("Please choose an image file for the logo.");
+      event.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string" || reader.result.trim() === "") {
+        setNotice("Unable to load the selected logo file.");
+        event.target.value = "";
+        return;
+      }
+
+      setDraftTemplate((current) => ({
+        ...current,
+        logoDataUrl: reader.result as string,
+      }));
+      setNotice("Logo uploaded. Drag the Logo overlay on the canvas to place it.");
+      event.target.value = "";
+    };
+    reader.onerror = () => {
+      setNotice("Unable to load the selected logo file.");
+      event.target.value = "";
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const removeLogo = () => {
+    setDraftTemplate((current) => ({
+      ...current,
+      logoDataUrl: "",
+    }));
+    setNotice("Logo removed from the template.");
   };
 
   const cancelEditing = () => {
@@ -378,18 +480,99 @@ export function IDTemplatePage() {
                 ))}
               </div>
 
+              <div className="rounded-lg border bg-muted/20">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between px-3 py-2 text-left"
+                  onClick={() => setShowColorPalette((current) => !current)}
+                >
+                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    Color Palette
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 text-muted-foreground transition-transform ${
+                      showColorPalette ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+                {showColorPalette ? (
+                  <div className="grid gap-3 border-t px-3 pb-3 pt-2 md:grid-cols-3">
+                    {COLOR_FIELDS.map((field) => (
+                      <div key={field.key} className="space-y-1">
+                        <Label htmlFor={`template-${field.key}`}>{field.label}</Label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id={`template-${field.key}`}
+                            type="color"
+                            value={toColorPickerValue(
+                              draftTemplate[field.key],
+                              DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT[field.key]
+                            )}
+                            onChange={(event) => updateColorField(field.key, event.target.value)}
+                            className="h-10 w-12 cursor-pointer rounded border bg-white p-1"
+                          />
+                          <Input
+                            value={draftTemplate[field.key]}
+                            onChange={(event) => updateColorField(field.key, event.target.value)}
+                            placeholder="#000000"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" className="inline-flex items-center gap-2" onClick={openLogoPicker}>
+                    <ImagePlus className="h-4 w-4" />
+                    Upload Logo
+                  </Button>
+                  {draftTemplate.logoDataUrl ? (
+                    <Button type="button" variant="ghost" className="inline-flex items-center gap-2" onClick={removeLogo}>
+                      <Trash2 className="h-4 w-4" />
+                      Remove Logo
+                    </Button>
+                  ) : null}
+                </div>
+                {draftTemplate.logoDataUrl ? (
+                  <img
+                    src={draftTemplate.logoDataUrl}
+                    alt="Template logo preview"
+                    className="h-12 max-w-48 rounded border bg-white object-contain p-1"
+                  />
+                ) : (
+                  <p className="text-xs text-muted-foreground">No logo uploaded yet.</p>
+                )}
+              </div>
+
               <div className="grid gap-3 md:grid-cols-4">
                 {SIZE_FIELDS.map((field) => (
                   <div key={field.key} className="space-y-1">
                     <Label htmlFor={`template-${field.key}`}>{field.label}</Label>
                     <Input
+                      key={`${field.key}-${draftTemplate[field.key]}`}
                       id={`template-${field.key}`}
                       type="number"
                       min={NUMBER_LIMITS[field.key].min}
                       max={NUMBER_LIMITS[field.key].max}
                       step={field.step}
-                      value={draftTemplate[field.key]}
-                      onChange={(event) => updateNumberField(field.key, event.target.value)}
+                      defaultValue={draftTemplate[field.key]}
+                      onBlur={(event) => {
+                        if (event.target.value.trim() === "") {
+                          event.target.value = String(draftTemplate[field.key]);
+                          return;
+                        }
+
+                        updateNumberField(field.key, event.target.value);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.currentTarget.blur();
+                        }
+                      }}
                     />
                   </div>
                 ))}
@@ -420,7 +603,8 @@ export function IDTemplatePage() {
               <canvas ref={canvasRef} className="block w-full rounded-xl border bg-white shadow-sm" />
               {editing ? (
                 <div className="pointer-events-none absolute inset-0">
-                  {DRAG_HANDLES.map((handle) => {
+                  {DRAG_HANDLES.filter((handle) => handle.id !== "logo" || draftTemplate.logoDataUrl.trim() !== "").map(
+                    (handle) => {
                     const style = HANDLE_STYLES[handle.id];
                     const isActive = activeHandleId === handle.id;
                     const left = toPercent(draftTemplate[handle.xKey], draftTemplate.canvasWidth);

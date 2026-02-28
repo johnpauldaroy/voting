@@ -8,6 +8,11 @@ export interface VoterCardTemplateLayout {
   headerTextColor: string;
   headerTextX: number;
   headerTextY: number;
+  logoDataUrl: string;
+  logoX: number;
+  logoY: number;
+  logoWidth: number;
+  logoHeight: number;
   cardX: number;
   cardY: number;
   cardWidth: number;
@@ -43,6 +48,11 @@ export const DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT: VoterCardTemplateLayout = {
   headerTextColor: "#ffffff",
   headerTextX: 88,
   headerTextY: 72,
+  logoDataUrl: "",
+  logoX: 980,
+  logoY: 18,
+  logoWidth: 180,
+  logoHeight: 72,
   cardX: 160,
   cardY: 170,
   cardWidth: 880,
@@ -84,6 +94,14 @@ function toStringValue(value: unknown, fallback: string) {
   return trimmed === "" ? fallback : trimmed;
 }
 
+function toOptionalStringValue(value: unknown, fallback: string) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  return value.trim();
+}
+
 export function sanitizeVoterCardTemplateLayout(partial: Partial<VoterCardTemplateLayout>): VoterCardTemplateLayout {
   const fallback = DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT;
 
@@ -97,6 +115,11 @@ export function sanitizeVoterCardTemplateLayout(partial: Partial<VoterCardTempla
     headerTextColor: toStringValue(partial.headerTextColor, fallback.headerTextColor),
     headerTextX: clampNumber(partial.headerTextX, fallback.headerTextX, 20, 1500),
     headerTextY: clampNumber(partial.headerTextY, fallback.headerTextY, 30, 500),
+    logoDataUrl: toOptionalStringValue(partial.logoDataUrl, fallback.logoDataUrl),
+    logoX: clampNumber(partial.logoX, fallback.logoX, 20, 1800),
+    logoY: clampNumber(partial.logoY, fallback.logoY, 10, 1300),
+    logoWidth: clampNumber(partial.logoWidth, fallback.logoWidth, 60, 900),
+    logoHeight: clampNumber(partial.logoHeight, fallback.logoHeight, 30, 600),
     cardX: clampNumber(partial.cardX, fallback.cardX, 20, 1700),
     cardY: clampNumber(partial.cardY, fallback.cardY, 20, 1300),
     cardWidth: clampNumber(partial.cardWidth, fallback.cardWidth, 300, 1700),
@@ -156,11 +179,11 @@ export function resetVoterCardTemplateLayout() {
   window.localStorage.removeItem(STORAGE_KEY);
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+function loadImage(src: string, errorMessage: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Unable to render QR image."));
+    image.onerror = () => reject(new Error(errorMessage));
     image.src = src;
   });
 }
@@ -253,6 +276,21 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
   context.font = "700 52px Segoe UI, Arial, sans-serif";
   context.fillText(resolvedLayout.headerText, resolvedLayout.headerTextX, resolvedLayout.headerTextY);
 
+  if (resolvedLayout.logoDataUrl) {
+    try {
+      const logoImage = await loadImage(resolvedLayout.logoDataUrl, "Unable to render logo image.");
+      context.drawImage(
+        logoImage,
+        resolvedLayout.logoX,
+        resolvedLayout.logoY,
+        resolvedLayout.logoWidth,
+        resolvedLayout.logoHeight
+      );
+    } catch {
+      // Ignore logo rendering failures to keep card generation resilient.
+    }
+  }
+
   context.save();
   roundedRectPath(
     context,
@@ -272,7 +310,7 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
   context.restore();
 
   if (options.qrDataUrl) {
-    const qrImage = await loadImage(options.qrDataUrl);
+    const qrImage = await loadImage(options.qrDataUrl, "Unable to render QR image.");
     context.imageSmoothingEnabled = false;
     context.drawImage(qrImage, resolvedLayout.qrX, resolvedLayout.qrY, resolvedLayout.qrSize, resolvedLayout.qrSize);
     if (resolvedLayout.qrBorderWidth > 0) {
