@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { ChevronDown, FileUp, ImagePlus, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, ImagePlus, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -276,10 +276,6 @@ export function IDTemplatePage() {
 
   const openCardImagePicker = () => {
     cardImageInputRef.current?.click();
-  };
-
-  const openTemplatePicker = () => {
-    templateInputRef.current?.click();
   };
 
   const handleTemplateImport = (event: ChangeEvent<HTMLInputElement>) => {
@@ -690,16 +686,6 @@ export function IDTemplatePage() {
               >
                 <Pencil className="h-4 w-4" />
                 Edit Layout
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="inline-flex items-center gap-2"
-                onClick={openTemplatePicker}
-                disabled={Boolean(pendingImportedTemplate)}
-              >
-                <FileUp className="h-4 w-4" />
-                Import ID Template
               </Button>
             </div>
           ) : null}

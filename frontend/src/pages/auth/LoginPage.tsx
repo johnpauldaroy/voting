@@ -126,7 +126,7 @@ export function LoginPage() {
               aria-label={showPassword ? "Hide password" : "Show password"}
               aria-pressed={showPassword}
             >
-              {showPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+              {showPassword ? <Eye className="h-4 w-4" aria-hidden="true" /> : <EyeOff className="h-4 w-4" aria-hidden="true" />}
             </button>
           </div>
           {errors.password ? <p className="text-sm text-destructive">{errors.password.message}</p> : null}

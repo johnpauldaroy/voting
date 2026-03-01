@@ -834,6 +834,19 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
     throw new Error("Unable to prepare QR card canvas.");
   }
 
+  context.fillStyle = resolvedLayout.backgroundColor;
+  context.fillRect(0, 0, resolvedLayout.canvasWidth, resolvedLayout.canvasHeight);
+
+  const headerHeight = Math.min(resolvedLayout.canvasHeight, Math.max(0, resolvedLayout.headerHeight));
+  if (headerHeight > 0) {
+    context.fillStyle = resolvedLayout.headerColor;
+    context.fillRect(0, 0, resolvedLayout.canvasWidth, headerHeight);
+  }
+
+  context.fillStyle = resolvedLayout.headerTextColor;
+  context.font = `700 ${Math.max(24, Math.round(headerHeight * 0.42))}px Segoe UI, Arial, sans-serif`;
+  context.fillText(resolvedLayout.headerText, resolvedLayout.headerTextX, resolvedLayout.headerTextY);
+
   if (resolvedLayout.cardTemplateImageDataUrl) {
     try {
       const cardTemplateImage = await loadImage(resolvedLayout.cardTemplateImageDataUrl, "Unable to render card template image.");
@@ -987,6 +1000,10 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
       branchBlockHeight + 2
     );
   }
+
+  context.fillStyle = resolvedLayout.footerColor;
+  context.font = `500 ${Math.max(18, Math.round(resolvedLayout.branchFontSize * 0.88))}px Segoe UI, Arial, sans-serif`;
+  context.fillText(resolvedLayout.footerText, resolvedLayout.textX, resolvedLayout.footerY);
 
   return canvas;
 }
