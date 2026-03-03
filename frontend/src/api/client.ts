@@ -31,7 +31,6 @@ export const api = axios.create({
   xsrfCookieName: "XSRF-TOKEN",
   xsrfHeaderName: "X-XSRF-TOKEN",
   headers: {
-    "X-Requested-With": "XMLHttpRequest",
     Accept: "application/json",
   },
 });
@@ -45,7 +44,6 @@ export async function ensureCsrfCookie() {
     xsrfCookieName: "XSRF-TOKEN",
     xsrfHeaderName: "X-XSRF-TOKEN",
     headers: {
-      "X-Requested-With": "XMLHttpRequest",
       Accept: "application/json",
     },
   });

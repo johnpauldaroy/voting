@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Pencil, Plus, Trash2 } from "lucide-react";
 import axios from "axios";
 import {
@@ -59,6 +59,7 @@ export function SettingsPage() {
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersPage, setUsersPage] = useState(1);
+  const [usersSearchInput, setUsersSearchInput] = useState("");
   const [usersSearch, setUsersSearch] = useState("");
   const [usersRoleFilter, setUsersRoleFilter] = useState<UserRole | undefined>(undefined);
   const [showUserForm, setShowUserForm] = useState(false);
@@ -69,6 +70,7 @@ export function SettingsPage() {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const loadUsersRequestIdRef = useRef(0);
 
   const roleOptions = useMemo(
     () => [
@@ -101,22 +103,43 @@ export function SettingsPage() {
       return;
     }
 
+    const requestId = loadUsersRequestIdRef.current + 1;
+    loadUsersRequestIdRef.current = requestId;
+
     try {
       setUsersLoading(true);
       const response = await getUsers(usersPage, 25, usersSearch, usersRoleFilter);
+      if (requestId !== loadUsersRequestIdRef.current) {
+        return;
+      }
       setUsers(response.data);
       setMeta(response.meta);
       setError(null);
     } catch (loadError) {
+      if (requestId !== loadUsersRequestIdRef.current) {
+        return;
+      }
       if (await handleUnauthorized(loadError)) {
         return;
       }
 
       setError(extractErrorMessage(loadError));
     } finally {
-      setUsersLoading(false);
+      if (requestId === loadUsersRequestIdRef.current) {
+        setUsersLoading(false);
+      }
     }
   }, [handleUnauthorized, user?.role, usersPage, usersSearch, usersRoleFilter]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setUsersSearch(usersSearchInput.trim());
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [usersSearchInput]);
 
   useEffect(() => {
     void loadUsers();
@@ -229,10 +252,10 @@ export function SettingsPage() {
               <div className="grid gap-2 md:grid-cols-[1fr_220px_auto] md:items-center">
                 <Input
                   placeholder="Search by name or email"
-                  value={usersSearch}
+                  value={usersSearchInput}
                   onChange={(event) => {
                     setUsersPage(1);
-                    setUsersSearch(event.target.value);
+                    setUsersSearchInput(event.target.value);
                   }}
                 />
 

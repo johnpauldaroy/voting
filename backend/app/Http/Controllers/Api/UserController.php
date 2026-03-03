@@ -1047,14 +1047,30 @@ class UserController extends Controller
     private function buildVotersQuery(?string $search = null, ?string $branch = null): Builder
     {
         $query = User::query()
-            ->where('role', 'voter')
-            ->orderBy('name');
+            ->select([
+                'id',
+                'name',
+                'branch',
+                'email',
+                'voter_id',
+                'voter_key',
+                'role',
+                'is_active',
+                'attendance_status',
+                'already_voted',
+                'created_at',
+                'updated_at',
+            ])
+            ->where('role', UserRole::VOTER->value)
+            ->orderBy('name')
+            ->orderBy('id');
 
-        if ($branch) {
-            $query->where('branch', $branch);
+        if ($branch !== null && trim($branch) !== '') {
+            $query->where('branch', trim($branch));
         }
 
-        if ($search) {
+        $search = $search !== null ? trim($search) : null;
+        if ($search !== null && $search !== '') {
             $query->where(function ($builder) use ($search): void {
                 $builder->where('name', 'like', '%'.$search.'%')
                     ->orWhere('branch', 'like', '%'.$search.'%')

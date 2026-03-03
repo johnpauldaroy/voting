@@ -40,11 +40,22 @@ class AttendanceController extends Controller
         }
 
         $baseQuery = User::query()
+            ->select([
+                'id',
+                'name',
+                'branch',
+                'voter_id',
+                'attendance_status',
+                'already_voted',
+                'created_at',
+                'updated_at',
+            ])
             ->where('role', UserRole::VOTER->value)
-            ->orderBy('name');
+            ->orderBy('name')
+            ->orderBy('id');
 
-        if (! empty($data['search'])) {
-            $search = (string) $data['search'];
+        $search = isset($data['search']) ? trim((string) $data['search']) : '';
+        if ($search !== '') {
             $baseQuery->where(function ($builder) use ($search): void {
                 $builder->where('name', 'like', '%'.$search.'%')
                     ->orWhere('voter_id', 'like', '%'.$search.'%')
@@ -59,9 +70,16 @@ class AttendanceController extends Controller
 
         $totalCount = (clone $baseQuery)->count();
         if ($electionId !== null) {
-            $presentQuery = clone $baseQuery;
-            $this->applyAttendanceStatusFilter($presentQuery, $electionId, AttendanceStatus::PRESENT->value);
-            $presentCount = $presentQuery->count();
+            if ($search === '') {
+                $presentCount = Attendance::query()
+                    ->where('election_id', $electionId)
+                    ->where('status', AttendanceStatus::PRESENT->value)
+                    ->count();
+            } else {
+                $presentQuery = clone $baseQuery;
+                $this->applyAttendanceStatusFilter($presentQuery, $electionId, AttendanceStatus::PRESENT->value);
+                $presentCount = $presentQuery->count();
+            }
             $absentCount = max(0, $totalCount - $presentCount);
         } else {
             $presentCount = (clone $baseQuery)

@@ -130,6 +130,7 @@ export function VotersPage() {
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
   const [electionId, setElectionId] = useState<number | undefined>(undefined);
   const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -151,6 +152,7 @@ export function VotersPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const loadVotersRequestIdRef = useRef(0);
   const {
     startImport,
     isImporting: importing,
@@ -180,22 +182,43 @@ export function VotersPage() {
   }, []);
 
   const loadVoters = useCallback(async () => {
+    const requestId = loadVotersRequestIdRef.current + 1;
+    loadVotersRequestIdRef.current = requestId;
+
     try {
       setLoading(true);
       const response = await getVoters(page, 25, search, electionId, branchFilter || undefined);
+      if (requestId !== loadVotersRequestIdRef.current) {
+        return;
+      }
       setVoters(response.data);
       setMeta(response.meta);
       setError(null);
     } catch (loadError) {
+      if (requestId !== loadVotersRequestIdRef.current) {
+        return;
+      }
       setError(extractErrorMessage(loadError));
     } finally {
-      setLoading(false);
+      if (requestId === loadVotersRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [page, search, electionId, branchFilter]);
 
   useEffect(() => {
     void loadElections();
   }, [loadElections]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [searchInput]);
 
   useEffect(() => {
     void loadVoters();
@@ -595,10 +618,10 @@ export function VotersPage() {
 
           <Input
             placeholder="Search by name, branch, email, or voter ID"
-            value={search}
+            value={searchInput}
             onChange={(event) => {
               setPage(1);
-              setSearch(event.target.value);
+              setSearchInput(event.target.value);
             }}
           />
 
