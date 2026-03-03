@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { AuthProvider } from "@/context/AuthContext";
+import { AttendanceImportProvider } from "@/context/AttendanceImportContext";
 import { VoterImportProvider } from "@/context/VoterImportContext";
 import coopVoteLogo from "@/assets/coop-vote-logo-cropped.png";
 import App from "./App";
@@ -25,7 +26,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <AuthProvider>
       <VoterImportProvider>
-        <App />
+        <AttendanceImportProvider>
+          <App />
+        </AttendanceImportProvider>
       </VoterImportProvider>
     </AuthProvider>
   </React.StrictMode>

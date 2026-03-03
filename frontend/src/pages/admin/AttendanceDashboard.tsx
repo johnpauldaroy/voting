@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useAttendanceImport } from "@/hooks/useAttendanceImport";
 import { cn } from "@/lib/utils";
 
 type ScanValidationTone = "success" | "warning" | "error";
@@ -129,11 +130,18 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const voterDropdownRef = useRef<HTMLDivElement | null>(null);
   const voterSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const attendanceImportInputRef = useRef<HTMLInputElement | null>(null);
   const qrUploadInputRef = useRef<HTMLInputElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const zxingControlsRef = useRef<IScannerControls | null>(null);
   const scanBusyRef = useRef(false);
   const lastScannedRef = useRef<{ voterId: string; at: number } | null>(null);
+  const {
+    startImport: startAttendanceImport,
+    isImporting: importingAttendance,
+    progress: attendanceImportProgress,
+    status: attendanceImportStatus,
+  } = useAttendanceImport();
 
   const loadAttendances = useCallback(async (electionId: number, page = 1) => {
     try {
@@ -389,6 +397,50 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     setScanHint("Allow camera access and point to voter QR code.");
     setScanValidation(null);
   }, []);
+
+  const handleImportAttendanceFile = useCallback(
+    async (file: File) => {
+      if (!activeElectionId) {
+        setNotice({
+          tone: "warning",
+          message: "No election selected for attendance import.",
+        });
+        return;
+      }
+
+      const fileName = file.name.toLowerCase();
+      if (!fileName.endsWith(".csv") && !fileName.endsWith(".txt")) {
+        setNotice({
+          tone: "warning",
+          message: "Please upload a CSV file for attendance import.",
+        });
+        return;
+      }
+
+      try {
+        const response = await startAttendanceImport(file, activeElectionId);
+        const skipped = response.meta.skipped ?? 0;
+        const processed = response.meta.total_processed ?? 0;
+        const updated = response.meta.updated ?? 0;
+
+        setNotice({
+          tone: skipped > 0 ? "warning" : "success",
+          message:
+            skipped > 0
+              ? `${response.message} Updated: ${updated}, processed: ${processed}, skipped: ${skipped}.`
+              : `${response.message} Updated: ${updated}, processed: ${processed}.`,
+        });
+
+        await loadAttendances(activeElectionId, recordsPage);
+      } catch (importError) {
+        setNotice({
+          tone: "error",
+          message: extractErrorMessage(importError),
+        });
+      }
+    },
+    [activeElectionId, loadAttendances, recordsPage, startAttendanceImport]
+  );
 
   const processScannedQrValue = useCallback(
     async (rawValue: string) => {
@@ -652,6 +704,21 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
 
   return (
     <div className="space-y-4">
+      <input
+        ref={attendanceImportInputRef}
+        type="file"
+        accept=".csv,.txt,text/csv"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            void handleImportAttendanceFile(file);
+          }
+
+          event.target.value = "";
+        }}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -796,16 +863,65 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
                 <Camera className="h-4 w-4" />
                 Open Attendance Scanner
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="inline-flex items-center gap-2"
-                disabled={!activeElectionId}
-                onClick={openDeleteAttendanceDialog}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete Attendance
-              </Button>
+
+              <div className="relative" ref={actionsMenuRef}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="px-4"
+                  onClick={() => {
+                    setActionsMenuOpen((current) => !current);
+                  }}
+                >
+                  ...
+                </Button>
+
+                {actionsMenuOpen ? (
+                  <div className="absolute right-0 z-20 mt-2 w-60 rounded-md border bg-card p-1 shadow-lg">
+                    <button
+                      type="button"
+                      className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!activeElectionId || importingAttendance}
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        attendanceImportInputRef.current?.click();
+                      }}
+                    >
+                      <Upload className="h-4 w-4 text-muted-foreground" />
+                      {importingAttendance ? attendanceImportStatus === "processing" ? "Processing..." : "Uploading..." : "Import Attendance"}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!activeElectionId}
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        openDeleteAttendanceDialog();
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete Attendance
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              {importingAttendance ? (
+                <div className="w-full min-w-[220px] max-w-[320px] rounded-md border bg-muted/40 px-3 py-2">
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="font-medium text-foreground">
+                      {attendanceImportProgress < 100 ? "Uploading attendance..." : "Importing attendance data..."}
+                    </span>
+                    <span className="text-muted-foreground">{attendanceImportProgress}%</span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width] duration-200"
+                      style={{ width: `${attendanceImportProgress}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </CardHeader>
@@ -813,12 +929,10 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Voter ID</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Branch</TableHead>
                 <TableHead>Check-in</TableHead>
                 <TableHead>Attendance Status</TableHead>
-                <TableHead>Already Voted</TableHead>
                 <TableHead>Source</TableHead>
               </TableRow>
             </TableHeader>
@@ -826,9 +940,6 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
               {loading && records.length === 0
                 ? Array.from({ length: 5 }).map((_, index) => (
                     <TableRow key={`attendance-skeleton-${index}`}>
-                      <TableCell>
-                        <div className="h-3 w-24 animate-pulse rounded bg-secondary" />
-                      </TableCell>
                       <TableCell>
                         <div className="h-3 w-40 animate-pulse rounded bg-secondary" />
                       </TableCell>
@@ -842,16 +953,12 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
                         <div className="h-6 w-20 animate-pulse rounded-full bg-secondary" />
                       </TableCell>
                       <TableCell>
-                        <div className="h-3 w-10 animate-pulse rounded bg-secondary" />
-                      </TableCell>
-                      <TableCell>
                         <div className="h-3 w-16 animate-pulse rounded bg-secondary" />
                       </TableCell>
                     </TableRow>
                   ))
                 : records.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.user?.voter_id ?? "-"}</TableCell>
                   <TableCell>{row.user?.name ?? "-"}</TableCell>
                   <TableCell>{row.user?.branch ?? "-"}</TableCell>
                   <TableCell>{row.checked_in_at ? new Date(row.checked_in_at).toLocaleString() : "-"}</TableCell>
@@ -862,19 +969,12 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
                       <Badge variant="secondary">Absent</Badge>
                     )}
                   </TableCell>
-                  <TableCell>
-                    {row.user?.already_voted ? (
-                      <span className="font-bold text-green-600">YES</span>
-                    ) : (
-                      <span className="text-muted-foreground">NO</span>
-                    )}
-                  </TableCell>
                   <TableCell className="capitalize">{row.source}</TableCell>
                 </TableRow>
                   ))}
               {!loading && records.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
                     No attendance records found.
                   </TableCell>
                 </TableRow>

@@ -8,7 +8,6 @@ import {
   LogOut,
   Menu,
   Settings,
-  Users,
   Vote,
   X,
   type LucideIcon,
@@ -16,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
+import { useAttendanceImport } from "@/hooks/useAttendanceImport";
 import { useVoterImport } from "@/hooks/useVoterImport";
 import type { UserRole } from "@/api/types";
 import coopVoteLogo from "@/assets/coop-vote-logo-cropped.png";
@@ -43,8 +43,6 @@ const NAV_ITEMS: NavItem[] = [
       { label: "Attendance Records", path: "/admin/attendance/records" },
     ],
   },
-  { label: "Voters", path: "/admin/voters", roles: ["super_admin", "election_admin"], icon: Users },
-  { label: "Ballot", path: "/admin/ballot", roles: ["super_admin", "election_admin"], icon: Vote },
   {
     label: "Settings",
     path: "/admin/settings",
@@ -72,6 +70,14 @@ export function DashboardLayout() {
     isImporting: isVoterImporting,
     clearState: clearVoterImportState,
   } = useVoterImport();
+  const {
+    status: attendanceImportStatus,
+    progress: attendanceImportProgress,
+    fileName: attendanceImportFileName,
+    message: attendanceImportMessage,
+    isImporting: isAttendanceImporting,
+    clearState: clearAttendanceImportState,
+  } = useAttendanceImport();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -108,6 +114,22 @@ export function DashboardLayout() {
     voterImportStatus === "error"
       ? "border-rose-300 bg-rose-50 text-rose-800"
       : voterImportStatus === "success"
+        ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+        : "border-sky-300 bg-sky-50 text-sky-800";
+  const showAttendanceImportBanner =
+    (user.role === "super_admin" || user.role === "election_admin") &&
+    (isAttendanceImporting || attendanceImportStatus === "success" || attendanceImportStatus === "error");
+  const attendanceImportTitle = isAttendanceImporting
+    ? attendanceImportStatus === "processing"
+      ? "Processing Attendance Import..."
+      : "Uploading Attendance Import..."
+    : attendanceImportStatus === "success"
+      ? "Attendance Import Complete"
+      : "Attendance Import Failed";
+  const attendanceImportToneClass =
+    attendanceImportStatus === "error"
+      ? "border-rose-300 bg-rose-50 text-rose-800"
+      : attendanceImportStatus === "success"
         ? "border-emerald-300 bg-emerald-50 text-emerald-800"
         : "border-sky-300 bg-sky-50 text-sky-800";
 
@@ -386,6 +408,47 @@ export function DashboardLayout() {
                     className="inline-flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-black/10"
                     aria-label="Dismiss voter import status"
                     onClick={clearVoterImportState}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {showAttendanceImportBanner ? (
+          <div className="border-b bg-card px-4 py-3 sm:px-6 lg:px-8">
+            <div className={`mx-auto max-w-[1400px] rounded-[10px] border px-3 py-2 ${attendanceImportToneClass}`}>
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">{attendanceImportTitle}</p>
+                  <p className="text-xs opacity-90">
+                    {attendanceImportFileName ? `File: ${attendanceImportFileName}` : "Attendance import file"}
+                  </p>
+                  {isAttendanceImporting ? (
+                    <>
+                      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/70">
+                        <div
+                          className="h-full bg-current transition-[width] duration-150 ease-out"
+                          style={{ width: `${attendanceImportProgress}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs">
+                        {attendanceImportStatus === "processing"
+                          ? `Processing records... ${attendanceImportProgress}%`
+                          : `Uploading... ${attendanceImportProgress}%`}
+                      </p>
+                    </>
+                  ) : attendanceImportMessage ? (
+                    <p className="mt-1 text-xs">{attendanceImportMessage}</p>
+                  ) : null}
+                </div>
+                {!isAttendanceImporting ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-black/10"
+                    aria-label="Dismiss attendance import status"
+                    onClick={clearAttendanceImportState}
                   >
                     <X className="h-4 w-4" />
                   </button>

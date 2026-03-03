@@ -404,6 +404,15 @@ class AttendanceController extends Controller
         /** @var UploadedFile $file */
         $file = $request->file('file');
         $rows = $this->readCsvFile($file);
+        $rows = array_values(array_filter($rows, function (array $row): bool {
+            foreach ($row as $value) {
+                if (trim((string) $value) !== '') {
+                    return true;
+                }
+            }
+
+            return false;
+        }));
 
         if (count($rows) < 2) {
             return response()->json([
@@ -411,15 +420,16 @@ class AttendanceController extends Controller
             ], 422);
         }
 
-        $headers = array_map(
-            fn ($header): string => Str::snake(trim((string) preg_replace('/^\xEF\xBB\xBF/', '', (string) $header))),
-            $rows[0]
-        );
+        $headers = array_map(fn ($header): string => $this->normalizeImportHeader((string) $header), $rows[0]);
 
-        if (! in_array('voter_id', $headers, true)
-            || ! in_array('status', $headers, true)) {
+        $voterIdColumn = $this->resolveHeaderColumn($headers, ['voter_id', 'voterid', 'voter_number', 'voter_no']);
+        $statusColumn = $this->resolveHeaderColumn($headers, ['status', 'attendance_status']);
+        $nameColumn = $this->resolveHeaderColumn($headers, ['name', 'full_name', 'voter_name', 'member_name']);
+        $branchColumn = $this->resolveHeaderColumn($headers, ['branch', 'office', 'department']);
+
+        if ($voterIdColumn === null && $nameColumn === null) {
             return response()->json([
-                'message' => 'CSV must contain VOTER ID and STATUS columns.',
+                'message' => 'CSV must contain NAME column.',
             ], 422);
         }
 
@@ -439,8 +449,9 @@ class AttendanceController extends Controller
                 continue;
             }
 
-            $status = $this->parseAttendanceStatus($row['status'] ?? null);
-            if ($status === null) {
+            $statusRaw = $statusColumn !== null ? ($row[$statusColumn] ?? null) : null;
+            $status = $this->parseAttendanceStatus($statusRaw);
+            if ($status === null && $statusRaw !== null && trim((string) $statusRaw) !== '') {
                 $errors[] = [
                     'line' => $line,
                     'message' => 'STATUS must be present or absent.',
@@ -448,35 +459,43 @@ class AttendanceController extends Controller
 
                 continue;
             }
+            $status ??= AttendanceStatus::PRESENT->value;
+
+            $voterId = $voterIdColumn !== null ? trim((string) ($row[$voterIdColumn] ?? '')) : '';
+            $name = $nameColumn !== null ? trim((string) ($row[$nameColumn] ?? '')) : '';
+            $branch = $branchColumn !== null ? trim((string) ($row[$branchColumn] ?? '')) : '';
 
             $normalized = [
-                'voter_id' => $row['voter_id'] ?? null,
+                'voter_id' => $voterId !== '' ? $voterId : null,
+                'name' => $name !== '' ? $name : null,
                 'status' => $status,
             ];
 
             $validator = Validator::make($normalized, [
-                'voter_id' => ['required', 'string', 'max:100'],
+                'voter_id' => ['nullable', 'string', 'max:100'],
+                'name' => ['nullable', 'string', 'max:255'],
                 'status' => ['required', 'in:present,absent'],
             ]);
 
-            if ($validator->fails()) {
+            if ($validator->fails() || ($normalized['voter_id'] === null && $normalized['name'] === null)) {
                 $errors[] = [
                     'line' => $line,
-                    'message' => $validator->errors()->first(),
+                    'message' => $validator->errors()->first() ?: 'Either VOTER ID or NAME is required.',
                 ];
 
                 continue;
             }
 
-            $voter = User::query()
-                ->where('role', UserRole::VOTER->value)
-                ->where('voter_id', $normalized['voter_id'])
-                ->first();
+            [$voter, $lookupError] = $this->resolveVoterForImport(
+                $normalized['voter_id'],
+                $normalized['name'],
+                $branch !== '' ? $branch : null
+            );
 
             if (! $voter) {
                 $errors[] = [
                     'line' => $line,
-                    'message' => 'Voter ID was not found.',
+                    'message' => $lookupError ?? 'Voter was not found.',
                 ];
 
                 continue;
@@ -578,6 +597,80 @@ class AttendanceController extends Controller
             'absent', 'a', '0', 'no', 'false' => AttendanceStatus::ABSENT->value,
             default => null,
         };
+    }
+
+    private function normalizeImportHeader(string $value): string
+    {
+        $withoutBom = (string) preg_replace('/^\xEF\xBB\xBF/', '', $value);
+        $normalized = Str::lower(trim($withoutBom));
+        $normalized = (string) preg_replace('/[^a-z0-9]+/', '_', $normalized);
+
+        return trim($normalized, '_');
+    }
+
+    /**
+     * @param array<int, string> $headers
+     * @param array<int, string> $candidates
+     */
+    private function resolveHeaderColumn(array $headers, array $candidates): ?string
+    {
+        foreach ($candidates as $candidate) {
+            $normalized = $this->normalizeImportHeader((string) $candidate);
+            if (in_array($normalized, $headers, true)) {
+                return $normalized;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{0: ?User, 1: ?string}
+     */
+    private function resolveVoterForImport(?string $voterId, ?string $name, ?string $branch): array
+    {
+        $voterId = trim((string) $voterId);
+        $name = trim((string) $name);
+        $branch = trim((string) $branch);
+
+        if ($voterId !== '') {
+            $voter = User::query()
+                ->where('role', UserRole::VOTER->value)
+                ->where('voter_id', $voterId)
+                ->first();
+
+            if ($voter) {
+                return [$voter, null];
+            }
+        }
+
+        if ($name === '') {
+            return [null, $voterId !== '' ? 'Voter ID was not found.' : 'Either VOTER ID or NAME is required.'];
+        }
+
+        $query = User::query()
+            ->where('role', UserRole::VOTER->value)
+            ->whereRaw('LOWER(name) = ?', [Str::lower($name)]);
+
+        if ($branch !== '') {
+            $query->whereRaw('LOWER(branch) = ?', [Str::lower($branch)]);
+        }
+
+        $matches = $query->limit(2)->get();
+        if ($matches->count() === 1) {
+            return [$matches->first(), null];
+        }
+
+        if ($matches->count() > 1) {
+            return [null, 'Multiple voters matched NAME. Add BRANCH or VOTER ID.'];
+        }
+
+        return [
+            null,
+            $branch !== ''
+                ? 'No voter matched the provided NAME and BRANCH.'
+                : 'No voter matched the provided NAME.',
+        ];
     }
 
     private function applyAttendanceStatusFilter(Builder $query, ?int $electionId, string $status): void

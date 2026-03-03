@@ -1,4 +1,5 @@
 import { api } from "@/api/client";
+import type { AxiosProgressEvent } from "axios";
 import type { Attendance, AttendanceStatus, PaginationMeta } from "@/api/types";
 
 interface GetAttendancesResponse {
@@ -53,6 +54,10 @@ interface ImportAttendanceResponse {
     skipped?: number;
   };
   errors?: Array<{ line: number; message: string }>;
+}
+
+interface ImportAttendancesOptions {
+  onUploadProgress?: (percent: number, event: AxiosProgressEvent) => void;
 }
 
 interface AttendanceAccessCheckInPayload {
@@ -124,7 +129,7 @@ export async function deleteAttendancesForElection(electionId: number, confirmat
   return response.data;
 }
 
-export async function importAttendances(file: File, electionId?: number) {
+export async function importAttendances(file: File, electionId?: number, options?: ImportAttendancesOptions) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("continue_on_error", "1");
@@ -135,6 +140,15 @@ export async function importAttendances(file: File, electionId?: number) {
   const response = await api.post<ImportAttendanceResponse>("/attendances/import", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
+    },
+    onUploadProgress: (event) => {
+      if (!options?.onUploadProgress) {
+        return;
+      }
+
+      const total = event.total ?? 0;
+      const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((event.loaded * 100) / total))) : 0;
+      options.onUploadProgress(percent, event);
     },
   });
 
