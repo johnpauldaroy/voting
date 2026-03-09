@@ -2,6 +2,10 @@ import { api } from "@/api/client";
 import type { Candidate, Election, ElectionStatus, Position } from "@/api/types";
 
 const electionInFlightRequests = new Map<number, Promise<Election>>();
+const electionListInFlightRequests = new Map<string, Promise<Election[]>>();
+const electionListCache = new Map<string, { data: Election[]; expiresAt: number }>();
+const ELECTION_LIST_CACHE_TTL_MS = 10_000;
+let electionListCacheVersion = 0;
 
 interface ElectionPayload {
   title: string;
@@ -31,11 +35,67 @@ interface CandidateUpdatePayload {
   bio?: string | null;
 }
 
-export async function getElections(status?: ElectionStatus) {
-  const response = await api.get<{ data: Election[] }>("/elections", {
+interface GetElectionsOptions {
+  force?: boolean;
+}
+
+function electionListCacheKey(status?: ElectionStatus) {
+  return status ?? "all";
+}
+
+export function clearElectionsCache(status?: ElectionStatus) {
+  electionListCacheVersion += 1;
+
+  if (typeof status === "string") {
+    const key = electionListCacheKey(status);
+    electionListCache.delete(key);
+    electionListInFlightRequests.delete(key);
+    return;
+  }
+
+  electionListCache.clear();
+  electionListInFlightRequests.clear();
+}
+
+export async function getElections(status?: ElectionStatus, options: GetElectionsOptions = {}) {
+  const key = electionListCacheKey(status);
+  const now = Date.now();
+  const shouldForce = options.force === true;
+
+  if (!shouldForce) {
+    const cached = electionListCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    const existingRequest = electionListInFlightRequests.get(key);
+    if (existingRequest) {
+      return existingRequest;
+    }
+  }
+
+  const cacheVersionAtRequest = electionListCacheVersion;
+  const request = api.get<{ data: Election[] }>("/elections", {
     params: status ? { status } : undefined,
-  });
-  return response.data.data;
+  })
+    .then((response) => {
+      const payload = response.data.data;
+      if (cacheVersionAtRequest === electionListCacheVersion) {
+        electionListCache.set(key, {
+          data: payload,
+          expiresAt: Date.now() + ELECTION_LIST_CACHE_TTL_MS,
+        });
+      }
+      return payload;
+    })
+    .finally(() => {
+      if (electionListInFlightRequests.get(key) === request) {
+        electionListInFlightRequests.delete(key);
+      }
+    });
+
+  electionListInFlightRequests.set(key, request);
+  return request;
 }
 
 export async function getElection(electionId: number) {
@@ -63,16 +123,19 @@ export async function getElectionPreview(electionId: number) {
 
 export async function createElection(payload: ElectionPayload) {
   const response = await api.post<{ data: Election }>("/elections", payload);
+  clearElectionsCache();
   return response.data.data;
 }
 
 export async function updateElection(electionId: number, payload: Partial<ElectionPayload>) {
   const response = await api.put<{ data: Election }>(`/elections/${electionId}`, payload);
+  clearElectionsCache();
   return response.data.data;
 }
 
 export async function deleteElection(electionId: number) {
   await api.delete(`/elections/${electionId}`);
+  clearElectionsCache();
 }
 
 export async function createPosition(electionId: number, payload: PositionPayload) {

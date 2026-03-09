@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IScannerControls } from "@zxing/browser";
-import { CalendarCheck2, Camera, ChevronDown, Download, Link as LinkIcon, Plus, Trash2, Upload, UserCheck2, UserX, Users } from "lucide-react";
+import { CalendarCheck2, Camera, ChevronDown, Download, Link as LinkIcon, Plus, Trash2, UserCheck2, UserX, Users } from "lucide-react";
 import { deleteAttendancesForElection, exportPresentAttendancesCsv, getAttendances, upsertAttendance } from "@/api/attendance";
 import { extractErrorMessage } from "@/api/client";
 import { getElections } from "@/api/elections";
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ActionAlert } from "@/components/ui/action-alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -39,6 +40,21 @@ interface AttendanceDashboardProps {
 }
 
 const ATTENDANCE_PER_PAGE = 10;
+const ATTENDANCE_BRANCH_FILTER_OPTIONS = [
+  "Barbaza",
+  "Culasi",
+  "Sibalom",
+  "San Jose",
+  "Balasan",
+  "Barotac Viejo",
+  "Caticlan",
+  "Molo",
+  "Kalibo",
+  "Janiuay",
+  "Calinog",
+  "Sara",
+  "President Roxas",
+] as const;
 
 function parseVoterIdFromQr(rawValue: string): string | null {
   const normalized = rawValue
@@ -98,6 +114,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
   const [records, setRecords] = useState<Attendance[]>([]);
   const [recordsMeta, setRecordsMeta] = useState<PaginationMeta | null>(null);
   const [recordsPage, setRecordsPage] = useState(1);
+  const [recordsBranchFilter, setRecordsBranchFilter] = useState("");
   const [summary, setSummary] = useState({ total: 0, present: 0, absent: 0 });
   const [loading, setLoading] = useState(false);
   const [activeElectionId, setActiveElectionId] = useState<number | null>(null);
@@ -118,7 +135,6 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
   const [deletingAttendance, setDeletingAttendance] = useState(false);
   const [deleteConfirmationInput, setDeleteConfirmationInput] = useState("");
   const [deleteAttendanceError, setDeleteAttendanceError] = useState<string | null>(null);
-  const [uploadingQr, setUploadingQr] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanHint, setScanHint] = useState("Allow camera access and point to voter QR code.");
@@ -129,17 +145,17 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const voterDropdownRef = useRef<HTMLDivElement | null>(null);
   const voterSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const qrUploadInputRef = useRef<HTMLInputElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const zxingControlsRef = useRef<IScannerControls | null>(null);
   const scanBusyRef = useRef(false);
   const lastScannedRef = useRef<{ voterId: string; at: number } | null>(null);
 
-  const loadAttendances = useCallback(async (electionId: number, page = 1) => {
+  const loadAttendances = useCallback(async (electionId: number, page = 1, branch = recordsBranchFilter) => {
     try {
       setLoading(true);
       const response = await getAttendances({
         election_id: electionId,
+        branch: branch || undefined,
         page,
         per_page: ATTENDANCE_PER_PAGE,
       });
@@ -147,6 +163,15 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
       setRecordsMeta(response.meta);
       setRecordsPage(response.meta.current_page);
       setSummary(response.summary);
+
+      if (response.meta.current_page < response.meta.last_page) {
+        void getAttendances({
+          election_id: electionId,
+          branch: branch || undefined,
+          page: response.meta.current_page + 1,
+          per_page: ATTENDANCE_PER_PAGE,
+        });
+      }
     } catch (loadError) {
       setNotice({
         tone: "error",
@@ -155,7 +180,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [recordsBranchFilter]);
 
   const buildAttendanceLink = useCallback((electionId: number) => {
     const origin = window.location.origin;
@@ -217,7 +242,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           voterId,
           at: Date.now(),
         });
-        await loadAttendances(activeElectionId, recordsPage);
+        await loadAttendances(activeElectionId, recordsPage, recordsBranchFilter);
       } catch (scanSubmitError) {
         const message = extractErrorMessage(scanSubmitError);
         const lowerMessage = message.toLowerCase();
@@ -235,7 +260,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
         });
       }
     },
-    [activeElectionId, loadAttendances, recordsPage]
+    [activeElectionId, loadAttendances, recordsBranchFilter, recordsPage]
   );
 
   const handleExportPresent = useCallback(async () => {
@@ -314,7 +339,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
       setAddAttendanceOpen(false);
       setSelectedVoter(null);
       setVoterDropdownOpen(false);
-      await loadAttendances(activeElectionId, recordsPage);
+      await loadAttendances(activeElectionId, recordsPage, recordsBranchFilter);
     } catch (addError) {
       const message = extractErrorMessage(addError);
       const lowerMessage = message.toLowerCase();
@@ -326,7 +351,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     } finally {
       setAddingAttendance(false);
     }
-  }, [activeElectionId, loadAttendances, recordsPage, selectedVoter]);
+  }, [activeElectionId, loadAttendances, recordsBranchFilter, recordsPage, selectedVoter]);
 
   const handleDeleteAttendance = useCallback(async () => {
     if (deleteConfirmationInput.trim().toUpperCase() !== "DELETE ALL") {
@@ -357,7 +382,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
       });
       setDeleteAttendanceOpen(false);
       setDeleteConfirmationInput("");
-      await loadAttendances(activeElectionId, recordsPage);
+      await loadAttendances(activeElectionId, recordsPage, recordsBranchFilter);
     } catch (deleteError) {
       setNotice({
         tone: "error",
@@ -367,7 +392,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     } finally {
       setDeletingAttendance(false);
     }
-  }, [activeElectionId, deleteConfirmationInput, loadAttendances, recordsPage]);
+  }, [activeElectionId, deleteConfirmationInput, loadAttendances, recordsBranchFilter, recordsPage]);
 
   const openDeleteAttendanceDialog = useCallback(() => {
     if (!activeElectionId) {
@@ -429,40 +454,6 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     [handleScannedVoter, scanOpen]
   );
 
-  const handleUploadQrFile = useCallback(
-    async (file: File) => {
-      if (!file.type.startsWith("image/")) {
-        setScanError("Please upload an image file containing a QR code.");
-        return;
-      }
-
-      const imageUrl = URL.createObjectURL(file);
-      setUploadingQr(true);
-      setScanError(null);
-      setScanHint("Reading uploaded QR image...");
-
-      try {
-        const { BrowserQRCodeReader } = await import("@zxing/browser");
-        const reader = new BrowserQRCodeReader();
-        const result = await reader.decodeFromImageUrl(imageUrl);
-        const rawValue = result?.getText()?.trim();
-
-        if (!rawValue) {
-          setScanError("No QR data found in uploaded image.");
-          return;
-        }
-
-        await processScannedQrValue(rawValue);
-      } catch {
-        setScanError("Unable to read QR from uploaded image. Try a clearer QR photo.");
-      } finally {
-        URL.revokeObjectURL(imageUrl);
-        setUploadingQr(false);
-      }
-    },
-    [processScannedQrValue]
-  );
-
   useEffect(() => {
     void (async () => {
       try {
@@ -474,7 +465,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           setActiveElectionId(defaultElection.id);
           setActiveElectionLabel(`${defaultElection.title} (#${defaultElection.id})`);
           setActiveElectionStatus(defaultElection.status);
-          await loadAttendances(defaultElection.id, 1);
+          await loadAttendances(defaultElection.id, 1, recordsBranchFilter);
         } else {
           setActiveElectionId(null);
           setActiveElectionLabel("No election selected");
@@ -489,7 +480,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
         });
       }
     })();
-  }, [loadAttendances]);
+  }, [loadAttendances, recordsBranchFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -649,6 +640,10 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
       value: String(voter.voter_id),
       label: `${voter.name} (${formatUserRole(voter.role)})${voter.branch ? ` - ${voter.branch}` : ""}`,
     }));
+  const recordsBranchOptions = ATTENDANCE_BRANCH_FILTER_OPTIONS.map((branch) => ({
+    value: branch,
+    label: branch,
+  }));
 
   return (
     <div className="space-y-4">
@@ -724,64 +719,84 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
             ) : null}
           </div>
           {view === "records" ? (
-            <div className="relative" ref={actionsMenuRef}>
-              <Button
-                type="button"
-                variant="outline"
-                className="px-4"
-                onClick={() => {
-                  setActionsMenuOpen((current) => !current);
-                }}
-              >
-                ...
-              </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Select
+                className="min-w-[170px]"
+                options={recordsBranchOptions}
+                value={recordsBranchFilter}
+                placeholder="All branches"
+                onChange={(event) => {
+                  const nextBranch = event.target.value;
+                  setRecordsPage(1);
+                  setRecordsBranchFilter(nextBranch);
 
-              {actionsMenuOpen ? (
-                <div className="absolute right-0 z-20 mt-2 w-60 rounded-md border bg-card p-1 shadow-lg">
-                  <button
-                    type="button"
-                    className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={!activeElectionId}
-                    onClick={() => {
-                      setActionsMenuOpen(false);
-                      setAddAttendanceOpen(true);
-                      setSelectedVoter(null);
-                      setVoterDropdownOpen(false);
-                      setVoterSearch("");
-                      setVoterOptions([]);
-                      setAddAttendanceError(null);
-                      setAddAttendanceLookupError(null);
-                    }}
-                  >
-                    <Plus className="h-4 w-4 text-muted-foreground" />
-                    Add Attendance
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={!activeElectionId || exporting}
-                    onClick={() => {
-                      setActionsMenuOpen(false);
-                      void handleExportPresent();
-                    }}
-                  >
-                    <Download className="h-4 w-4 text-muted-foreground" />
-                    {exporting ? "Exporting..." : "Export Present Attendance"}
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={!activeElectionId}
-                    onClick={() => {
-                      setActionsMenuOpen(false);
-                      openDeleteAttendanceDialog();
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete Attendance
-                  </button>
-                </div>
-              ) : null}
+                  if (!activeElectionId) {
+                    return;
+                  }
+
+                  void loadAttendances(activeElectionId, 1, nextBranch);
+                }}
+              />
+
+              <div className="relative" ref={actionsMenuRef}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="px-4"
+                  onClick={() => {
+                    setActionsMenuOpen((current) => !current);
+                  }}
+                >
+                  ...
+                </Button>
+
+                {actionsMenuOpen ? (
+                  <div className="absolute right-0 z-20 mt-2 w-60 rounded-md border bg-card p-1 shadow-lg">
+                    <button
+                      type="button"
+                      className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!activeElectionId}
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        setAddAttendanceOpen(true);
+                        setSelectedVoter(null);
+                        setVoterDropdownOpen(false);
+                        setVoterSearch("");
+                        setVoterOptions([]);
+                        setAddAttendanceError(null);
+                        setAddAttendanceLookupError(null);
+                      }}
+                    >
+                      <Plus className="h-4 w-4 text-muted-foreground" />
+                      Add Attendance
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!activeElectionId || exporting}
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        void handleExportPresent();
+                      }}
+                    >
+                      <Download className="h-4 w-4 text-muted-foreground" />
+                      {exporting ? "Exporting..." : "Export Present Attendance"}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!activeElectionId}
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        openDeleteAttendanceDialog();
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete Attendance
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
@@ -896,7 +911,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
                   if (!activeElectionId || recordsPage <= 1) {
                     return;
                   }
-                  void loadAttendances(activeElectionId, recordsPage - 1);
+                  void loadAttendances(activeElectionId, recordsPage - 1, recordsBranchFilter);
                 }}
               >
                 Previous
@@ -910,7 +925,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
                   if (!activeElectionId || (recordsMeta && recordsPage >= recordsMeta.last_page)) {
                     return;
                   }
-                  void loadAttendances(activeElectionId, recordsPage + 1);
+                  void loadAttendances(activeElectionId, recordsPage + 1, recordsBranchFilter);
                 }}
               >
                 Next
@@ -1096,21 +1111,6 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
             <AlertDialogDescription>{scanHint}</AlertDialogDescription>
           </AlertDialogHeader>
 
-          <input
-            ref={qrUploadInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                void handleUploadQrFile(file);
-              }
-
-              event.target.value = "";
-            }}
-          />
-
           <div className="space-y-3">
             <div className="overflow-hidden rounded-lg border bg-black/90">
               <video ref={videoRef} className="h-56 w-full object-cover" autoPlay muted playsInline />
@@ -1135,17 +1135,6 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           </div>
 
           <AlertDialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={uploadingQr}
-              onClick={() => {
-                qrUploadInputRef.current?.click();
-              }}
-            >
-              <Upload className="mr-1.5 h-4 w-4" />
-              {uploadingQr ? "Uploading..." : "Upload QR"}
-            </Button>
             <AlertDialogCancel
               onClick={() => {
                 setScanOpen(false);

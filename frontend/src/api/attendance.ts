@@ -15,8 +15,13 @@ interface GetAttendancesParams {
   election_id?: number;
   search?: string;
   status?: AttendanceStatus;
+  branch?: string;
   page?: number;
   per_page?: number;
+}
+
+interface GetAttendancesOptions {
+  force?: boolean;
 }
 
 interface UpsertAttendancePayload {
@@ -84,22 +89,103 @@ export interface AttendanceAccessCheckInResponse {
   };
 }
 
-export async function getAttendances(params: GetAttendancesParams) {
-  const response = await api.get<GetAttendancesResponse>("/attendances", {
-    params: {
-      election_id: params.election_id,
-      search: params.search || undefined,
-      status: params.status,
-      page: params.page ?? 1,
-      per_page: params.per_page ?? 25,
-    },
-  });
+const ATTENDANCES_CACHE_TTL_MS = 10_000;
 
-  return response.data;
+const attendancesCache = new Map<string, { data: GetAttendancesResponse; expiresAt: number }>();
+const attendancesInFlightRequests = new Map<string, Promise<GetAttendancesResponse>>();
+let attendancesCacheVersion = 0;
+
+function normalizedAttendancesParams(params: GetAttendancesParams) {
+  return {
+    election_id: typeof params.election_id === "number" ? params.election_id : null,
+    search: (params.search ?? "").trim(),
+    branch: (params.branch ?? "").trim(),
+    status: params.status ?? "all",
+    page: params.page ?? 1,
+    per_page: params.per_page ?? 25,
+  };
+}
+
+function attendancesCacheKey(params: GetAttendancesParams) {
+  const normalized = normalizedAttendancesParams(params);
+  return `e:${normalized.election_id ?? "none"}|q:${normalized.search}|b:${normalized.branch}|s:${normalized.status}|p:${normalized.page}|pp:${normalized.per_page}`;
+}
+
+export function clearAttendancesCache(electionId?: number) {
+  attendancesCacheVersion += 1;
+
+  if (typeof electionId !== "number") {
+    attendancesCache.clear();
+    attendancesInFlightRequests.clear();
+    return;
+  }
+
+  const prefix = `e:${electionId}|`;
+  for (const key of [...attendancesCache.keys()]) {
+    if (key.startsWith(prefix)) {
+      attendancesCache.delete(key);
+    }
+  }
+
+  for (const key of [...attendancesInFlightRequests.keys()]) {
+    if (key.startsWith(prefix)) {
+      attendancesInFlightRequests.delete(key);
+    }
+  }
+}
+
+export async function getAttendances(params: GetAttendancesParams, options: GetAttendancesOptions = {}) {
+  const key = attendancesCacheKey(params);
+  const now = Date.now();
+  const shouldForce = options.force === true;
+
+  if (!shouldForce) {
+    const cached = attendancesCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    const existingRequest = attendancesInFlightRequests.get(key);
+    if (existingRequest) {
+      return existingRequest;
+    }
+  }
+
+  const normalized = normalizedAttendancesParams(params);
+  const cacheVersionAtRequest = attendancesCacheVersion;
+  const request = api.get<GetAttendancesResponse>("/attendances", {
+    params: {
+      election_id: normalized.election_id ?? undefined,
+      search: normalized.search || undefined,
+      branch: normalized.branch || undefined,
+      status: normalized.status === "all" ? undefined : normalized.status,
+      page: normalized.page,
+      per_page: normalized.per_page,
+    },
+  })
+    .then((response) => {
+      const payload = response.data;
+      if (cacheVersionAtRequest === attendancesCacheVersion) {
+        attendancesCache.set(key, {
+          data: payload,
+          expiresAt: Date.now() + ATTENDANCES_CACHE_TTL_MS,
+        });
+      }
+      return payload;
+    })
+    .finally(() => {
+      if (attendancesInFlightRequests.get(key) === request) {
+        attendancesInFlightRequests.delete(key);
+      }
+    });
+
+  attendancesInFlightRequests.set(key, request);
+  return request;
 }
 
 export async function upsertAttendance(payload: UpsertAttendancePayload) {
   const response = await api.post<UpsertAttendanceResponse>("/attendances", payload);
+  clearAttendancesCache(payload.election_id);
   return response.data;
 }
 
@@ -110,6 +196,7 @@ export async function deleteAttendance(userId: number, electionId: number) {
     },
   });
 
+  clearAttendancesCache(electionId);
   return response.data;
 }
 
@@ -121,6 +208,7 @@ export async function deleteAttendancesForElection(electionId: number, confirmat
     },
   });
 
+  clearAttendancesCache(electionId);
   return response.data;
 }
 
@@ -138,11 +226,13 @@ export async function importAttendances(file: File, electionId?: number) {
     },
   });
 
+  clearAttendancesCache(electionId);
   return response.data;
 }
 
 export async function attendanceAccessCheckIn(payload: AttendanceAccessCheckInPayload) {
   const response = await api.post<AttendanceAccessCheckInResponse>("/attendance-access/check-in", payload);
+  clearAttendancesCache(payload.election_id);
   return response.data;
 }
 

@@ -1,18 +1,90 @@
 import { api } from "@/api/client";
 import type { PaginationMeta, User, UserRole } from "@/api/types";
 
-export async function getVoters(page = 1, perPage = 25, search = "", electionId?: number, branch?: string) {
-  const response = await api.get<{ data: User[]; meta: PaginationMeta }>("/voters", {
-    params: {
-      page,
-      per_page: perPage,
-      search: search || undefined,
-      election_id: electionId,
-      branch: branch || undefined,
-    },
-  });
+interface GetVotersOptions {
+  force?: boolean;
+}
 
-  return response.data;
+const VOTERS_CACHE_TTL_MS = 10_000;
+
+const votersCache = new Map<string, { data: { data: User[]; meta: PaginationMeta }; expiresAt: number }>();
+const votersInFlightRequests = new Map<string, Promise<{ data: User[]; meta: PaginationMeta }>>();
+let votersCacheVersion = 0;
+
+function normalizedVotersParams(page: number, perPage: number, search: string, electionId?: number, branch?: string) {
+  return {
+    page,
+    per_page: perPage,
+    search: search.trim(),
+    election_id: typeof electionId === "number" ? electionId : null,
+    branch: (branch ?? "").trim(),
+  };
+}
+
+function votersCacheKey(page: number, perPage: number, search: string, electionId?: number, branch?: string) {
+  const normalized = normalizedVotersParams(page, perPage, search, electionId, branch);
+  return `p:${normalized.page}|pp:${normalized.per_page}|q:${normalized.search}|e:${normalized.election_id ?? "none"}|b:${normalized.branch}`;
+}
+
+export function clearVotersCache() {
+  votersCacheVersion += 1;
+  votersCache.clear();
+  votersInFlightRequests.clear();
+}
+
+export async function getVoters(
+  page = 1,
+  perPage = 25,
+  search = "",
+  electionId?: number,
+  branch?: string,
+  options: GetVotersOptions = {}
+) {
+  const key = votersCacheKey(page, perPage, search, electionId, branch);
+  const now = Date.now();
+  const shouldForce = options.force === true;
+
+  if (!shouldForce) {
+    const cached = votersCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    const existingRequest = votersInFlightRequests.get(key);
+    if (existingRequest) {
+      return existingRequest;
+    }
+  }
+
+  const normalized = normalizedVotersParams(page, perPage, search, electionId, branch);
+  const cacheVersionAtRequest = votersCacheVersion;
+  const request = api.get<{ data: User[]; meta: PaginationMeta }>("/voters", {
+    params: {
+      page: normalized.page,
+      per_page: normalized.per_page,
+      search: normalized.search || undefined,
+      election_id: normalized.election_id ?? undefined,
+      branch: normalized.branch || undefined,
+    },
+  })
+    .then((response) => {
+      const payload = response.data;
+      if (cacheVersionAtRequest === votersCacheVersion) {
+        votersCache.set(key, {
+          data: payload,
+          expiresAt: Date.now() + VOTERS_CACHE_TTL_MS,
+        });
+      }
+      return payload;
+    })
+    .finally(() => {
+      if (votersInFlightRequests.get(key) === request) {
+        votersInFlightRequests.delete(key);
+      }
+    });
+
+  votersInFlightRequests.set(key, request);
+  return request;
 }
 
 export async function updateVoterStatus(userId: number, isActive: boolean) {
@@ -20,6 +92,7 @@ export async function updateVoterStatus(userId: number, isActive: boolean) {
     is_active: isActive,
   });
 
+  clearVotersCache();
   return response.data.data;
 }
 
@@ -71,16 +144,19 @@ export async function deleteUser(userId: number) {
 
 export async function createVoter(payload: CreateVoterPayload) {
   const response = await api.post<{ data: User }>("/voters", payload);
+  clearVotersCache();
   return response.data.data;
 }
 
 export async function updateVoter(userId: number, payload: CreateVoterPayload) {
   const response = await api.patch<{ data: User }>(`/voters/${userId}`, payload);
+  clearVotersCache();
   return response.data.data;
 }
 
 export async function deleteVoter(userId: number) {
   await api.delete(`/voters/${userId}`);
+  clearVotersCache();
 }
 
 export interface DeleteVotersResponse {
@@ -99,6 +175,7 @@ export async function deleteAllVotersExceptProtected(confirmation: string) {
     },
   });
 
+  clearVotersCache();
   return response.data;
 }
 
@@ -200,6 +277,7 @@ export async function importVoters(file: File, importId: string, onProgress?: (p
     },
   });
 
+  clearVotersCache();
   onProgress?.(100);
   return response.data;
 }

@@ -573,6 +573,16 @@ class UserController extends Controller
         $processed = 0;
         $lastReportedPercent = -1;
         $defaultPasswordHash = Hash::make('Password@123');
+        $usedVoterIds = User::query()
+            ->whereNotNull('voter_id')
+            ->pluck('voter_id')
+            ->mapWithKeys(fn ($voterId): array => [strtolower((string) $voterId) => true])
+            ->all();
+        $usedVoterKeys = User::query()
+            ->whereNotNull('voter_key')
+            ->pluck('voter_key')
+            ->mapWithKeys(fn ($voterKey): array => [strtolower((string) $voterKey) => true])
+            ->all();
 
         $this->setVoterImportProgress($importId, [
             'status' => 'importing',
@@ -597,7 +607,9 @@ class UserController extends Controller
                 &$created,
                 &$updated,
                 &$processed,
-                &$lastReportedPercent
+                &$lastReportedPercent,
+                &$usedVoterIds,
+                &$usedVoterKeys
             ): void {
                 foreach ($payloads as $payloadItem) {
                     $payload = $payloadItem['data'];
@@ -609,19 +621,36 @@ class UserController extends Controller
                     $attributes = [
                         'name' => $payload['name'],
                         'branch' => $payload['branch'],
-                        'role' => 'voter',
+                        'role' => UserRole::VOTER->value,
                         'is_active' => (bool) $payload['is_active'],
                     ];
 
                     if ($existingUser) {
                         $existingUser->fill($attributes);
+                        if (! $existingUser->voter_id) {
+                            $existingUser->voter_id = $this->generateUniqueVoterIdFromName((string) $payload['name'], $usedVoterIds);
+                        } else {
+                            $usedVoterIds[strtolower((string) $existingUser->voter_id)] = true;
+                        }
+
+                        if (! $existingUser->voter_key) {
+                            $existingUser->voter_key = $this->generateUniqueVoterKeyFromName((string) $payload['name'], $usedVoterKeys);
+                        } else {
+                            $usedVoterKeys[strtolower((string) $existingUser->voter_key)] = true;
+                        }
+
                         $existingUser->save();
                         $user = $existingUser;
                         $updated++;
                     } else {
+                        $voterId = $this->generateUniqueVoterIdFromName((string) $payload['name'], $usedVoterIds);
+                        $voterKey = $this->generateUniqueVoterKeyFromName((string) $payload['name'], $usedVoterKeys);
+
                         $user = User::create([
                             ...$attributes,
                             'email' => $payload['email'],
+                            'voter_id' => $voterId,
+                            'voter_key' => $voterKey,
                             'password' => $defaultPasswordHash,
                         ]);
 
@@ -632,22 +661,6 @@ class UserController extends Controller
                         }
 
                         $created++;
-                    }
-
-                    $shouldSave = false;
-
-                    if (! $user->voter_id) {
-                        $user->voter_id = $this->generateUniqueVoterId($user->name, $user->id);
-                        $shouldSave = true;
-                    }
-
-                    if (! $user->voter_key) {
-                        $user->voter_key = $this->generateVoterKeyFromName($user->name);
-                        $shouldSave = true;
-                    }
-
-                    if ($shouldSave) {
-                        $user->save();
                     }
 
                     $processed++;
@@ -1346,28 +1359,38 @@ class UserController extends Controller
         return $normalizedName.'|'.$normalizedBranch;
     }
 
-    private function generateUniqueVoterId(string $name, int $userId): string
+    /**
+     * @param  array<string, bool>  $usedVoterIds
+     */
+    private function generateUniqueVoterIdFromName(string $name, array &$usedVoterIds): string
     {
         $firstName = trim((string) Str::of($name)->before(' '));
         $base = (string) Str::of($firstName)->replaceMatches('/[^A-Za-z0-9]/', '')->value();
 
         if ($base === '') {
-            $base = 'voter'.$userId;
+            $base = 'Voter';
         }
 
         $base = ucfirst(strtolower($base));
         $candidate = $base;
         $counter = 1;
+        $normalizedCandidate = strtolower($candidate);
 
-        while (User::query()->where('voter_id', $candidate)->where('id', '!=', $userId)->exists()) {
+        while (isset($usedVoterIds[$normalizedCandidate])) {
             $candidate = $base.$counter;
+            $normalizedCandidate = strtolower($candidate);
             $counter++;
         }
+
+        $usedVoterIds[$normalizedCandidate] = true;
 
         return $candidate;
     }
 
-    private function generateVoterKeyFromName(string $name): string
+    /**
+     * @param  array<string, bool>  $usedVoterKeys
+     */
+    private function generateUniqueVoterKeyFromName(string $name, array &$usedVoterKeys): string
     {
         $parts = collect(preg_split('/\s+/', trim($name)) ?: [])
             ->map(fn ($part): string => preg_replace('/[^A-Za-z0-9]/', '', (string) $part) ?? '')
@@ -1376,14 +1399,28 @@ class UserController extends Controller
 
         $firstInitial = strtoupper(substr((string) ($parts[0] ?? 'V'), 0, 1));
         $lastInitial = strtoupper(substr((string) ($parts[count($parts) - 1] ?? $parts[0] ?? 'R'), 0, 1));
-
-        return sprintf(
+        $prefixA = $firstInitial !== '' ? $firstInitial : 'V';
+        $prefixB = $lastInitial !== '' ? $lastInitial : 'R';
+        $base = sprintf(
             '%s%d%s%d',
-            $firstInitial !== '' ? $firstInitial : 'V',
+            $prefixA,
             random_int(0, 9),
-            $lastInitial !== '' ? $lastInitial : 'R',
+            $prefixB,
             random_int(0, 9)
         );
+        $candidate = $base;
+        $counter = 1;
+        $normalizedCandidate = strtolower($candidate);
+
+        while (isset($usedVoterKeys[$normalizedCandidate])) {
+            $candidate = $base.$counter;
+            $normalizedCandidate = strtolower($candidate);
+            $counter++;
+        }
+
+        $usedVoterKeys[$normalizedCandidate] = true;
+
+        return $candidate;
     }
 
     private function hasVotesInAnyElection(User $user): bool

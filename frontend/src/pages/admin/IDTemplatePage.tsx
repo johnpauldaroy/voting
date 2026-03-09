@@ -23,8 +23,10 @@ type PositionFieldKey =
   | "qrX"
   | "qrY"
   | "textX"
+  | "footerX"
   | "nameY"
-  | "branchY";
+  | "branchY"
+  | "footerY";
 
 type SizeFieldKey =
   | "cardWidth"
@@ -39,7 +41,6 @@ type DesignNumberFieldKey =
   | "headerHeight"
   | "headerTextX"
   | "headerTextY"
-  | "footerY"
   | "cardBorderWidth"
   | "qrBorderWidth";
 type NumberFieldKey = PositionFieldKey | SizeFieldKey | DesignNumberFieldKey;
@@ -53,7 +54,7 @@ type ColorFieldKey =
   | "nameColor"
   | "branchColor"
   | "footerColor";
-type DragHandleId = "logo" | "card" | "qr" | "name" | "branch";
+type DragHandleId = "logo" | "card" | "qr" | "name" | "branch" | "footer";
 
 const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   logoX: { min: 20, max: 1800 },
@@ -63,8 +64,10 @@ const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   qrX: { min: 20, max: 1800 },
   qrY: { min: 20, max: 1300 },
   textX: { min: 20, max: 1800 },
+  footerX: { min: 20, max: 1800 },
   nameY: { min: 20, max: 1300 },
   branchY: { min: 20, max: 1300 },
+  footerY: { min: 20, max: 1300 },
   cardWidth: { min: 300, max: 1700 },
   cardHeight: { min: 220, max: 1200 },
   cardRadius: { min: 0, max: 200 },
@@ -76,7 +79,6 @@ const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   headerHeight: { min: 70, max: 220 },
   headerTextX: { min: 20, max: 1500 },
   headerTextY: { min: 30, max: 500 },
-  footerY: { min: 20, max: 1300 },
   cardBorderWidth: { min: 0, max: 20 },
   qrBorderWidth: { min: 0, max: 12 },
 };
@@ -109,6 +111,7 @@ const DRAG_HANDLES: DragHandle[] = [
   { id: "qr", label: "QR", xKey: "qrX", yKey: "qrY", widthKey: "qrSize", heightKey: "qrSize" },
   { id: "name", label: "Name", xKey: "textX", yKey: "nameY" },
   { id: "branch", label: "Branch", xKey: "textX", yKey: "branchY" },
+  { id: "footer", label: "Coop Vote", xKey: "footerX", yKey: "footerY" },
 ];
 
 const HANDLE_STYLES: Record<
@@ -149,6 +152,12 @@ const HANDLE_STYLES: Record<
     badge: "bg-violet-600 text-white",
     point: "border-violet-500 bg-violet-50 text-violet-700",
     active: "ring-violet-300",
+  },
+  footer: {
+    outline: "border-rose-500/80 bg-rose-500/10",
+    badge: "bg-rose-600 text-white",
+    point: "border-rose-500 bg-rose-50 text-rose-700",
+    active: "ring-rose-300",
   },
 };
 
@@ -983,47 +992,22 @@ export function IDTemplatePage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="template-headerTextX">Header Text X</Label>
+                  <Label htmlFor="template-footerX">Footer X</Label>
                   <Input
-                    key={`headerTextX-${draftTemplate.headerTextX}`}
-                    id="template-headerTextX"
+                    key={`footerX-${draftTemplate.footerX}`}
+                    id="template-footerX"
                     type="number"
-                    min={NUMBER_LIMITS.headerTextX.min}
-                    max={NUMBER_LIMITS.headerTextX.max}
+                    min={NUMBER_LIMITS.footerX.min}
+                    max={NUMBER_LIMITS.footerX.max}
                     step={1}
-                    defaultValue={draftTemplate.headerTextX}
+                    defaultValue={draftTemplate.footerX}
                     onBlur={(event) => {
                       if (event.target.value.trim() === "") {
-                        event.target.value = String(draftTemplate.headerTextX);
+                        event.target.value = String(draftTemplate.footerX);
                         return;
                       }
 
-                      updateNumberField("headerTextX", event.target.value);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.currentTarget.blur();
-                      }
-                    }}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="template-headerTextY">Header Text Y</Label>
-                  <Input
-                    key={`headerTextY-${draftTemplate.headerTextY}`}
-                    id="template-headerTextY"
-                    type="number"
-                    min={NUMBER_LIMITS.headerTextY.min}
-                    max={NUMBER_LIMITS.headerTextY.max}
-                    step={1}
-                    defaultValue={draftTemplate.headerTextY}
-                    onBlur={(event) => {
-                      if (event.target.value.trim() === "") {
-                        event.target.value = String(draftTemplate.headerTextY);
-                        return;
-                      }
-
-                      updateNumberField("headerTextY", event.target.value);
+                      updateNumberField("footerX", event.target.value);
                     }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {

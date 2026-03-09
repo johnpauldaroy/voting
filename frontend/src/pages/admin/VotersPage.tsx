@@ -71,6 +71,7 @@ const BRANCH_FILTER_OPTIONS = [
 ] as const;
 
 const QR_EXPORT_BATCH_SIZE = 8;
+const VOTERS_PER_PAGE = 10;
 
 function buildVoterQrPayload(voterId: string, voterKey: string): string {
   return `voter_id=${encodeURIComponent(voterId)}&voter_key=${encodeURIComponent(voterKey)}`;
@@ -187,13 +188,23 @@ export function VotersPage() {
 
     try {
       setLoading(true);
-      const response = await getVoters(page, 25, search, electionId, branchFilter || undefined);
+      const response = await getVoters(page, VOTERS_PER_PAGE, search, electionId, branchFilter || undefined);
       if (requestId !== loadVotersRequestIdRef.current) {
         return;
       }
       setVoters(response.data);
       setMeta(response.meta);
       setError(null);
+
+      if (response.meta.current_page < response.meta.last_page) {
+        void getVoters(
+          response.meta.current_page + 1,
+          VOTERS_PER_PAGE,
+          search,
+          electionId,
+          branchFilter || undefined
+        );
+      }
     } catch (loadError) {
       if (requestId !== loadVotersRequestIdRef.current) {
         return;

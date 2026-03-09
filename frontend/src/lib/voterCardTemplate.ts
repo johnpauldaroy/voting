@@ -28,6 +28,7 @@ export interface VoterCardTemplateLayout {
   qrBorderColor: string;
   qrBorderWidth: number;
   textX: number;
+  footerX: number;
   nameY: number;
   nameFontSize: number;
   branchY: number;
@@ -47,7 +48,7 @@ export const DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT: VoterCardTemplateLayout = {
   backgroundColor: "#f3f4f6",
   headerColor: "#047857",
   headerHeight: 108,
-  headerText: "ID Cards With QR Codes",
+  headerText: "",
   headerTextColor: "#ffffff",
   headerTextX: 88,
   headerTextY: 72,
@@ -71,6 +72,7 @@ export const DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT: VoterCardTemplateLayout = {
   qrBorderColor: "#111827",
   qrBorderWidth: 2,
   textX: 580,
+  footerX: 580,
   nameY: 380,
   nameFontSize: 52,
   branchY: 465,
@@ -141,6 +143,7 @@ export function sanitizeVoterCardTemplateLayout(partial: Partial<VoterCardTempla
     qrBorderColor: toStringValue(partial.qrBorderColor, fallback.qrBorderColor),
     qrBorderWidth: clampNumber(partial.qrBorderWidth, fallback.qrBorderWidth, 0, 12),
     textX: clampNumber(partial.textX, fallback.textX, 20, 1800),
+    footerX: clampNumber(partial.footerX ?? partial.textX, fallback.footerX, 20, 1800),
     nameY: clampNumber(partial.nameY, fallback.nameY, 20, 1300),
     nameFontSize: clampNumber(partial.nameFontSize, fallback.nameFontSize, 16, 140),
     branchY: clampNumber(partial.branchY, fallback.branchY, 20, 1300),
@@ -837,16 +840,6 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
   context.fillStyle = resolvedLayout.backgroundColor;
   context.fillRect(0, 0, resolvedLayout.canvasWidth, resolvedLayout.canvasHeight);
 
-  const headerHeight = Math.min(resolvedLayout.canvasHeight, Math.max(0, resolvedLayout.headerHeight));
-  if (headerHeight > 0) {
-    context.fillStyle = resolvedLayout.headerColor;
-    context.fillRect(0, 0, resolvedLayout.canvasWidth, headerHeight);
-  }
-
-  context.fillStyle = resolvedLayout.headerTextColor;
-  context.font = `700 ${Math.max(24, Math.round(headerHeight * 0.42))}px Segoe UI, Arial, sans-serif`;
-  context.fillText(resolvedLayout.headerText, resolvedLayout.headerTextX, resolvedLayout.headerTextY);
-
   if (resolvedLayout.cardTemplateImageDataUrl) {
     try {
       const cardTemplateImage = await loadImage(resolvedLayout.cardTemplateImageDataUrl, "Unable to render card template image.");
@@ -1003,7 +996,7 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
 
   context.fillStyle = resolvedLayout.footerColor;
   context.font = `500 ${Math.max(18, Math.round(resolvedLayout.branchFontSize * 0.88))}px Segoe UI, Arial, sans-serif`;
-  context.fillText(resolvedLayout.footerText, resolvedLayout.textX, resolvedLayout.footerY);
+  context.fillText(resolvedLayout.footerText, resolvedLayout.footerX, resolvedLayout.footerY);
 
   return canvas;
 }

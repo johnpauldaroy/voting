@@ -16,6 +16,7 @@ use App\Services\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -111,6 +112,10 @@ class AuthController extends Controller
 
             return [false, $checkedInAt->toIso8601String()];
         });
+
+        if (! $alreadyPresent) {
+            $this->bumpAttendanceIndexCacheVersion();
+        }
 
         if ($alreadyPresent) {
             return response()->json([
@@ -398,5 +403,17 @@ class AuthController extends Controller
             'marked_present' => $markedPresent,
             'marked_at' => $markedAt,
         ];
+    }
+
+    private function attendanceIndexCacheVersionKey(): string
+    {
+        return 'attendance:index:version';
+    }
+
+    private function bumpAttendanceIndexCacheVersion(): void
+    {
+        $key = $this->attendanceIndexCacheVersionKey();
+        $nextValue = (int) Cache::get($key, 1) + 1;
+        Cache::forever($key, $nextValue);
     }
 }

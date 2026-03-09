@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Carbon;
@@ -27,108 +28,126 @@ class AttendanceController extends Controller
         $data = $request->validate([
             'election_id' => ['nullable', 'integer', 'exists:elections,id'],
             'search' => ['nullable', 'string', 'max:255'],
+            'branch' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', 'in:present,absent'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
         ]);
 
         $electionId = isset($data['election_id']) ? (int) $data['election_id'] : null;
-        $electionTitle = null;
-        if ($electionId !== null) {
-            $electionTitle = Election::query()
-                ->whereKey($electionId)
-                ->value('title');
-        }
-
-        $baseQuery = User::query()
-            ->select([
-                'id',
-                'name',
-                'branch',
-                'voter_id',
-                'attendance_status',
-                'already_voted',
-                'created_at',
-                'updated_at',
-            ])
-            ->where('role', UserRole::VOTER->value)
-            ->orderBy('name')
-            ->orderBy('id');
-
         $search = isset($data['search']) ? trim((string) $data['search']) : '';
-        if ($search !== '') {
-            $baseQuery->where(function ($builder) use ($search): void {
-                $builder->where('name', 'like', '%'.$search.'%')
-                    ->orWhere('voter_id', 'like', '%'.$search.'%')
-                    ->orWhere('branch', 'like', '%'.$search.'%');
-            });
-        }
+        $branch = isset($data['branch']) ? trim((string) $data['branch']) : '';
+        $status = isset($data['status']) ? (string) $data['status'] : null;
+        $perPage = (int) ($data['per_page'] ?? 25);
+        $page = max(1, (int) $request->query('page', 1));
 
-        $query = clone $baseQuery;
-        if (! empty($data['status'])) {
-            $this->applyAttendanceStatusFilter($query, $electionId, (string) $data['status']);
-        }
+        $payload = Cache::remember(
+            $this->attendanceIndexCacheKey($electionId, $search, $branch, $status, $page, $perPage),
+            now()->addSeconds(30),
+            function () use ($electionId, $search, $branch, $status, $page, $perPage): array {
+                $electionTitle = null;
+                if ($electionId !== null) {
+                    $electionTitle = Election::query()
+                        ->whereKey($electionId)
+                        ->value('title');
+                }
 
-        $totalCount = (clone $baseQuery)->count();
-        if ($electionId !== null) {
-            if ($search === '') {
-                $presentCount = Attendance::query()
-                    ->where('election_id', $electionId)
-                    ->where('status', AttendanceStatus::PRESENT->value)
-                    ->count();
-            } else {
-                $presentQuery = clone $baseQuery;
-                $this->applyAttendanceStatusFilter($presentQuery, $electionId, AttendanceStatus::PRESENT->value);
-                $presentCount = $presentQuery->count();
+                $baseQuery = User::query()
+                    ->select([
+                        'id',
+                        'name',
+                        'branch',
+                        'voter_id',
+                        'attendance_status',
+                        'already_voted',
+                        'created_at',
+                        'updated_at',
+                    ])
+                    ->where('role', UserRole::VOTER->value)
+                    ->orderBy('name')
+                    ->orderBy('id');
+
+                if ($branch !== '') {
+                    $baseQuery->where('branch', $branch);
+                }
+
+                if ($search !== '') {
+                    $baseQuery->where(function ($builder) use ($search): void {
+                        $builder->where('name', 'like', '%'.$search.'%')
+                            ->orWhere('voter_id', 'like', '%'.$search.'%')
+                            ->orWhere('branch', 'like', '%'.$search.'%');
+                    });
+                }
+
+                $query = clone $baseQuery;
+                if ($status !== null && $status !== '') {
+                    $this->applyAttendanceStatusFilter($query, $electionId, $status);
+                }
+
+                $totalCount = (clone $baseQuery)->count();
+                if ($electionId !== null) {
+                    if ($search === '' && $branch === '') {
+                        $presentCount = Attendance::query()
+                            ->where('election_id', $electionId)
+                            ->where('status', AttendanceStatus::PRESENT->value)
+                            ->count();
+                    } else {
+                        $presentQuery = clone $baseQuery;
+                        $this->applyAttendanceStatusFilter($presentQuery, $electionId, AttendanceStatus::PRESENT->value);
+                        $presentCount = $presentQuery->count();
+                    }
+                    $absentCount = max(0, $totalCount - $presentCount);
+                } else {
+                    $presentCount = (clone $baseQuery)
+                        ->where('attendance_status', AttendanceStatus::PRESENT->value)
+                        ->count();
+                    $absentCount = (clone $baseQuery)
+                        ->where('attendance_status', AttendanceStatus::ABSENT->value)
+                        ->count();
+                }
+
+                $voters = $query->paginate($perPage, ['*'], 'page', $page);
+                $voterCollection = $voters->getCollection();
+                $alreadyVotedByUserId = $this->alreadyVotedByUserId($voterCollection, $electionId);
+
+                $attendanceByUserId = collect();
+                if ($electionId !== null && $voterCollection->isNotEmpty()) {
+                    $attendanceByUserId = Attendance::query()
+                        ->where('election_id', $electionId)
+                        ->whereIn('user_id', $voterCollection->pluck('id')->all())
+                        ->get()
+                        ->keyBy('user_id');
+                }
+
+                $rows = $voterCollection->map(
+                    fn (User $voter): array => $this->toAttendanceRow(
+                        $voter,
+                        $electionId,
+                        $electionTitle,
+                        'manual',
+                        null,
+                        $attendanceByUserId->get($voter->id),
+                        $alreadyVotedByUserId[$voter->id] ?? null
+                    )
+                )->values()->all();
+
+                return [
+                    'data' => $rows,
+                    'meta' => [
+                        'current_page' => $voters->currentPage(),
+                        'last_page' => $voters->lastPage(),
+                        'per_page' => $voters->perPage(),
+                        'total' => $voters->total(),
+                    ],
+                    'summary' => [
+                        'total' => $totalCount,
+                        'present' => $presentCount,
+                        'absent' => $absentCount,
+                    ],
+                ];
             }
-            $absentCount = max(0, $totalCount - $presentCount);
-        } else {
-            $presentCount = (clone $baseQuery)
-                ->where('attendance_status', AttendanceStatus::PRESENT->value)
-                ->count();
-            $absentCount = (clone $baseQuery)
-                ->where('attendance_status', AttendanceStatus::ABSENT->value)
-                ->count();
-        }
+        );
 
-        $voters = $query->paginate((int) ($data['per_page'] ?? 25));
-        $voterCollection = $voters->getCollection();
-        $alreadyVotedByUserId = $this->alreadyVotedByUserId($voterCollection, $electionId);
-
-        $attendanceByUserId = collect();
-        if ($electionId !== null && $voterCollection->isNotEmpty()) {
-            $attendanceByUserId = Attendance::query()
-                ->where('election_id', $electionId)
-                ->whereIn('user_id', $voterCollection->pluck('id')->all())
-                ->get()
-                ->keyBy('user_id');
-        }
-
-        $rows = $voterCollection->map(
-            fn (User $voter): array => $this->toAttendanceRow(
-                $voter,
-                $electionId,
-                $electionTitle,
-                'manual',
-                null,
-                $attendanceByUserId->get($voter->id),
-                $alreadyVotedByUserId[$voter->id] ?? null
-            )
-        )->values()->all();
-
-        return response()->json([
-            'data' => $rows,
-            'meta' => [
-                'current_page' => $voters->currentPage(),
-                'last_page' => $voters->lastPage(),
-                'per_page' => $voters->perPage(),
-                'total' => $voters->total(),
-            ],
-            'summary' => [
-                'total' => $totalCount,
-                'present' => $presentCount,
-                'absent' => $absentCount,
-            ],
-        ]);
+        return response()->json($payload);
     }
 
     public function store(Request $request): JsonResponse
@@ -213,6 +232,7 @@ class AttendanceController extends Controller
             'attendance.upsert',
             "Attendance updated for voter #{$voter->id} in election #{$electionId}."
         );
+        $this->bumpAttendanceIndexCacheVersion();
 
         return response()->json([
             'message' => $status === AttendanceStatus::PRESENT->value
@@ -293,6 +313,7 @@ class AttendanceController extends Controller
             'attendance.delete',
             "Attendance deleted for voter #{$user->id} in election #{$electionId}."
         );
+        $this->bumpAttendanceIndexCacheVersion();
 
         return response()->json([
             'message' => 'Attendance record deleted successfully.',
@@ -381,6 +402,7 @@ class AttendanceController extends Controller
             'attendance.bulk_delete',
             "Bulk attendance delete completed for election #{$electionId}. Deleted: {$deletedCount}, Affected voters: {$affectedUserCount}."
         );
+        $this->bumpAttendanceIndexCacheVersion();
 
         return response()->json([
             'message' => 'All attendance records for the selected election were deleted successfully.',
@@ -532,6 +554,7 @@ class AttendanceController extends Controller
             'attendance.import',
             "Attendance import completed for election #".($electionId ?? 0).". Updated: {$updated}, Processed: ".count($payloads).", Skipped: {$skipped}."
         );
+        $this->bumpAttendanceIndexCacheVersion();
 
         return response()->json([
             'message' => $continueOnError && $skipped > 0
@@ -545,6 +568,40 @@ class AttendanceController extends Controller
             ],
             'errors' => $continueOnError ? $errors : [],
         ]);
+    }
+
+    private function attendanceIndexCacheVersionKey(): string
+    {
+        return 'attendance:index:version';
+    }
+
+    private function attendanceIndexCacheVersion(): int
+    {
+        return (int) Cache::get($this->attendanceIndexCacheVersionKey(), 1);
+    }
+
+    private function attendanceIndexCacheKey(
+        ?int $electionId,
+        string $search,
+        string $branch,
+        ?string $status,
+        int $page,
+        int $perPage
+    ): string {
+        $version = $this->attendanceIndexCacheVersion();
+        $electionPart = $electionId !== null ? (string) $electionId : 'none';
+        $statusPart = $status !== null && $status !== '' ? $status : 'all';
+        $searchHash = md5($search);
+        $branchHash = md5($branch);
+
+        return "attendance:index:v{$version}:e{$electionPart}:s{$statusPart}:q{$searchHash}:b{$branchHash}:p{$page}:pp{$perPage}";
+    }
+
+    private function bumpAttendanceIndexCacheVersion(): void
+    {
+        $key = $this->attendanceIndexCacheVersionKey();
+        $nextValue = (int) Cache::get($key, 1) + 1;
+        Cache::forever($key, $nextValue);
     }
 
     private function readCsvFile(UploadedFile $file): array
