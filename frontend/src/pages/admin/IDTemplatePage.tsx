@@ -344,6 +344,7 @@ export function IDTemplatePage() {
           const sanitized = sanitizeVoterCardTemplateLayout({
             ...savedTemplate,
             cardTemplateImageDataUrl: reader.result,
+            cardBorderWidth: 0,
           });
           setPendingImportedTemplate(sanitized);
           setNotice("Template image imported. Could not auto-detect all positions. Choose Use or Discard.");
@@ -406,7 +407,7 @@ export function IDTemplatePage() {
     }
 
     if (!file.type.startsWith("image/")) {
-      setNotice("Please choose an image file for the card background.");
+      setNotice("Please choose an image file for the background.");
       event.target.value = "";
       return;
     }
@@ -414,7 +415,7 @@ export function IDTemplatePage() {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result !== "string" || reader.result.trim() === "") {
-        setNotice("Unable to load the selected card background image.");
+        setNotice("Unable to load the selected background image.");
         event.target.value = "";
         return;
       }
@@ -422,12 +423,13 @@ export function IDTemplatePage() {
       setDraftTemplate((current) => ({
         ...current,
         cardTemplateImageDataUrl: reader.result as string,
+        cardBorderWidth: 0,
       }));
-      setNotice("Card background image uploaded.");
+      setNotice("Background image uploaded. It will fill the full template.");
       event.target.value = "";
     };
     reader.onerror = () => {
-      setNotice("Unable to load the selected card background image.");
+      setNotice("Unable to load the selected background image.");
       event.target.value = "";
     };
 
@@ -447,7 +449,7 @@ export function IDTemplatePage() {
       ...current,
       cardTemplateImageDataUrl: "",
     }));
-    setNotice("Card background image removed.");
+    setNotice("Background image removed.");
   };
 
   const cancelEditing = () => {
@@ -790,7 +792,7 @@ export function IDTemplatePage() {
                     onClick={openCardImagePicker}
                   >
                     <ImagePlus className="h-4 w-4" />
-                    Upload Card Background
+                    Upload Background
                   </Button>
                   {draftTemplate.cardTemplateImageDataUrl ? (
                     <Button
@@ -800,18 +802,18 @@ export function IDTemplatePage() {
                       onClick={removeCardBackground}
                     >
                       <Trash2 className="h-4 w-4" />
-                      Remove Card Background
+                      Remove Background
                     </Button>
                   ) : null}
                 </div>
                 {draftTemplate.cardTemplateImageDataUrl ? (
                   <img
                     src={draftTemplate.cardTemplateImageDataUrl}
-                    alt="Card background preview"
+                    alt="Background preview"
                     className="h-20 max-w-64 rounded border bg-white object-cover p-1"
                   />
                 ) : (
-                  <p className="text-xs text-muted-foreground">No card background image uploaded.</p>
+                  <p className="text-xs text-muted-foreground">No background image uploaded.</p>
                 )}
               </div>
 

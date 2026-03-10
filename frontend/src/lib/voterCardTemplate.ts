@@ -65,7 +65,7 @@ export const DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT: VoterCardTemplateLayout = {
   cardRadius: 56,
   cardFillColor: "#ffffff",
   cardBorderColor: "#15803d",
-  cardBorderWidth: 4,
+  cardBorderWidth: 0,
   qrX: 230,
   qrY: 280,
   qrSize: 280,
@@ -81,7 +81,7 @@ export const DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT: VoterCardTemplateLayout = {
   nameColor: "#111827",
   branchColor: "#334155",
   footerColor: "#6b7280",
-  footerText: "Coop Vote",
+  footerText: "",
 };
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -740,6 +740,8 @@ export async function deriveTemplateLayoutFromReferenceImage(
   context.drawImage(image, 0, 0, width, height);
   const fullImageData = context.getImageData(0, 0, width, height).data;
   const cardBounds = detectCardBoundsFromBackground(fullImageData, width, height);
+  const analysisOffsetX = cardBounds?.x ?? 0;
+  const analysisOffsetY = cardBounds?.y ?? 0;
 
   let analysisWidth = width;
   let analysisHeight = height;
@@ -789,25 +791,33 @@ export async function deriveTemplateLayoutFromReferenceImage(
     };
   }
 
-  const scaleX = baseLayout.cardWidth / analysisWidth;
-  const scaleY = baseLayout.cardHeight / analysisHeight;
+  const canvasScaleX = baseLayout.canvasWidth / width;
+  const canvasScaleY = baseLayout.canvasHeight / height;
   const mapped: Partial<VoterCardTemplateLayout> = {
     ...baseLayout,
-    cardTemplateImageDataUrl: analysisImageDataUrl,
+    cardTemplateImageDataUrl: imageDataUrl,
+    cardBorderWidth: 0,
   };
 
+  if (cardBounds) {
+    mapped.cardX = Math.round(cardBounds.x * canvasScaleX);
+    mapped.cardY = Math.round(cardBounds.y * canvasScaleY);
+    mapped.cardWidth = Math.round(cardBounds.width * canvasScaleX);
+    mapped.cardHeight = Math.round(cardBounds.height * canvasScaleY);
+  }
+
   if (qrBounds) {
-    mapped.qrX = Math.round(baseLayout.cardX + qrBounds.x * scaleX);
-    mapped.qrY = Math.round(baseLayout.cardY + qrBounds.y * scaleY);
-    mapped.qrSize = Math.max(24, Math.round(qrBounds.size * ((scaleX + scaleY) / 2)));
+    mapped.qrX = Math.round((analysisOffsetX + qrBounds.x) * canvasScaleX);
+    mapped.qrY = Math.round((analysisOffsetY + qrBounds.y) * canvasScaleY);
+    mapped.qrSize = Math.max(24, Math.round(qrBounds.size * ((canvasScaleX + canvasScaleY) / 2)));
   }
 
   if (textLayout) {
-    mapped.textX = Math.round(baseLayout.cardX + textLayout.textX * scaleX);
-    mapped.nameY = Math.round(baseLayout.cardY + textLayout.nameBaselineY * scaleY);
-    mapped.branchY = Math.round(baseLayout.cardY + textLayout.branchBaselineY * scaleY);
-    mapped.nameFontSize = Math.max(10, Math.round(textLayout.nameFontSize * scaleY));
-    mapped.branchFontSize = Math.max(10, Math.round(textLayout.branchFontSize * scaleY));
+    mapped.textX = Math.round((analysisOffsetX + textLayout.textX) * canvasScaleX);
+    mapped.nameY = Math.round((analysisOffsetY + textLayout.nameBaselineY) * canvasScaleY);
+    mapped.branchY = Math.round((analysisOffsetY + textLayout.branchBaselineY) * canvasScaleY);
+    mapped.nameFontSize = Math.max(10, Math.round(textLayout.nameFontSize * canvasScaleY));
+    mapped.branchFontSize = Math.max(10, Math.round(textLayout.branchFontSize * canvasScaleY));
   }
 
   return sanitizeVoterCardTemplateLayout(mapped);
@@ -840,63 +850,18 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
   context.fillStyle = resolvedLayout.backgroundColor;
   context.fillRect(0, 0, resolvedLayout.canvasWidth, resolvedLayout.canvasHeight);
 
+  let hasRenderedBackgroundImage = false;
   if (resolvedLayout.cardTemplateImageDataUrl) {
     try {
       const cardTemplateImage = await loadImage(resolvedLayout.cardTemplateImageDataUrl, "Unable to render card template image.");
-      context.save();
-      roundedRectPath(
-        context,
-        resolvedLayout.cardX,
-        resolvedLayout.cardY,
-        resolvedLayout.cardWidth,
-        resolvedLayout.cardHeight,
-        resolvedLayout.cardRadius
-      );
-      context.clip();
-      context.drawImage(
-        cardTemplateImage,
-        resolvedLayout.cardX,
-        resolvedLayout.cardY,
-        resolvedLayout.cardWidth,
-        resolvedLayout.cardHeight
-      );
-      context.restore();
-
-      if (resolvedLayout.cardBorderWidth > 0) {
-        context.save();
-        roundedRectPath(
-          context,
-          resolvedLayout.cardX,
-          resolvedLayout.cardY,
-          resolvedLayout.cardWidth,
-          resolvedLayout.cardHeight,
-          resolvedLayout.cardRadius
-        );
-        context.lineWidth = resolvedLayout.cardBorderWidth;
-        context.strokeStyle = resolvedLayout.cardBorderColor;
-        context.stroke();
-        context.restore();
-      }
+      context.drawImage(cardTemplateImage, 0, 0, resolvedLayout.canvasWidth, resolvedLayout.canvasHeight);
+      hasRenderedBackgroundImage = true;
     } catch {
-      context.save();
-      roundedRectPath(
-        context,
-        resolvedLayout.cardX,
-        resolvedLayout.cardY,
-        resolvedLayout.cardWidth,
-        resolvedLayout.cardHeight,
-        resolvedLayout.cardRadius
-      );
-      context.fillStyle = resolvedLayout.cardFillColor;
-      context.fill();
-      if (resolvedLayout.cardBorderWidth > 0) {
-        context.lineWidth = resolvedLayout.cardBorderWidth;
-        context.strokeStyle = resolvedLayout.cardBorderColor;
-        context.stroke();
-      }
-      context.restore();
+      hasRenderedBackgroundImage = false;
     }
-  } else {
+  }
+
+  if (!hasRenderedBackgroundImage) {
     context.save();
     roundedRectPath(
       context,
@@ -993,10 +958,6 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
       branchBlockHeight + 2
     );
   }
-
-  context.fillStyle = resolvedLayout.footerColor;
-  context.font = `500 ${Math.max(18, Math.round(resolvedLayout.branchFontSize * 0.88))}px Segoe UI, Arial, sans-serif`;
-  context.fillText(resolvedLayout.footerText, resolvedLayout.footerX, resolvedLayout.footerY);
 
   return canvas;
 }
