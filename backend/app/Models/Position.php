@@ -35,7 +35,9 @@ class Position extends Model
 
     public function candidates(): HasMany
     {
-        return $this->hasMany(Candidate::class);
+        return $this->hasMany(Candidate::class)
+            ->orderBy('name')
+            ->orderBy('id');
     }
 
     public function votes(): HasMany
