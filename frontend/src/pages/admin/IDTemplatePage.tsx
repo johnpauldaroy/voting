@@ -22,7 +22,8 @@ type PositionFieldKey =
   | "cardY"
   | "qrX"
   | "qrY"
-  | "textX"
+  | "nameX"
+  | "branchX"
   | "nameY"
   | "branchY";
 
@@ -60,7 +61,8 @@ const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   cardY: { min: 20, max: 1300 },
   qrX: { min: 20, max: 1800 },
   qrY: { min: 20, max: 1300 },
-  textX: { min: 20, max: 1800 },
+  nameX: { min: 20, max: 1800 },
+  branchX: { min: 20, max: 1800 },
   nameY: { min: 20, max: 1300 },
   branchY: { min: 20, max: 1300 },
   cardWidth: { min: 300, max: 1700 },
@@ -103,8 +105,8 @@ const DRAG_HANDLES: DragHandle[] = [
   { id: "logo", label: "Logo", xKey: "logoX", yKey: "logoY", widthKey: "logoWidth", heightKey: "logoHeight" },
   { id: "card", label: "Card", xKey: "cardX", yKey: "cardY", widthKey: "cardWidth", heightKey: "cardHeight", movable: false },
   { id: "qr", label: "QR", xKey: "qrX", yKey: "qrY", widthKey: "qrSize", heightKey: "qrSize" },
-  { id: "name", label: "Name", xKey: "textX", yKey: "nameY" },
-  { id: "branch", label: "Branch", xKey: "textX", yKey: "branchY" },
+  { id: "name", label: "Name", xKey: "nameX", yKey: "nameY" },
+  { id: "branch", label: "Branch", xKey: "branchX", yKey: "branchY" },
 ];
 
 const HANDLE_STYLES: Record<

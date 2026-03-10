@@ -930,13 +930,24 @@ export function VotersPage() {
                     <TableCell>{voter.voter_id ?? "-"}</TableCell>
                     <TableCell>{voter.voter_key ?? "-"}</TableCell>
                     <TableCell>
-                      {voter.is_active ? (
-                        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Active</Badge>
-                      ) : (
-                        <Badge variant="secondary" className="bg-slate-200 text-slate-700 hover:bg-slate-200">
-                          Inactive
-                        </Badge>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {voter.is_active ? (
+                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Active</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="bg-slate-200 text-slate-700 hover:bg-slate-200">
+                            Inactive
+                          </Badge>
+                        )}
+                        {selectedElection ? (
+                          voter.has_voted ? (
+                            <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Voted</Badge>
+                          ) : (
+                            <Badge variant="secondary" className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+                              Not Yet Voted
+                            </Badge>
+                          )
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">

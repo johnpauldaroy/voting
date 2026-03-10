@@ -28,6 +28,8 @@ export interface VoterCardTemplateLayout {
   qrBorderColor: string;
   qrBorderWidth: number;
   textX: number;
+  nameX: number;
+  branchX: number;
   footerX: number;
   nameY: number;
   nameFontSize: number;
@@ -72,6 +74,8 @@ export const DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT: VoterCardTemplateLayout = {
   qrBorderColor: "#111827",
   qrBorderWidth: 2,
   textX: 580,
+  nameX: 580,
+  branchX: 580,
   footerX: 580,
   nameY: 380,
   nameFontSize: 52,
@@ -112,6 +116,7 @@ function toOptionalStringValue(value: unknown, fallback: string) {
 
 export function sanitizeVoterCardTemplateLayout(partial: Partial<VoterCardTemplateLayout>): VoterCardTemplateLayout {
   const fallback = DEFAULT_VOTER_CARD_TEMPLATE_LAYOUT;
+  const sharedTextX = clampNumber(partial.textX, fallback.textX, 20, 1800);
 
   return {
     canvasWidth: clampNumber(partial.canvasWidth, fallback.canvasWidth, 800, 2000),
@@ -142,7 +147,9 @@ export function sanitizeVoterCardTemplateLayout(partial: Partial<VoterCardTempla
     qrSize: clampNumber(partial.qrSize, fallback.qrSize, 120, 900),
     qrBorderColor: toStringValue(partial.qrBorderColor, fallback.qrBorderColor),
     qrBorderWidth: clampNumber(partial.qrBorderWidth, fallback.qrBorderWidth, 0, 12),
-    textX: clampNumber(partial.textX, fallback.textX, 20, 1800),
+    textX: sharedTextX,
+    nameX: clampNumber(partial.nameX ?? partial.textX, fallback.nameX, 20, 1800),
+    branchX: clampNumber(partial.branchX ?? partial.textX, fallback.branchX, 20, 1800),
     footerX: clampNumber(partial.footerX ?? partial.textX, fallback.footerX, 20, 1800),
     nameY: clampNumber(partial.nameY, fallback.nameY, 20, 1300),
     nameFontSize: clampNumber(partial.nameFontSize, fallback.nameFontSize, 16, 140),
@@ -813,7 +820,10 @@ export async function deriveTemplateLayoutFromReferenceImage(
   }
 
   if (textLayout) {
-    mapped.textX = Math.round((analysisOffsetX + textLayout.textX) * canvasScaleX);
+    const detectedTextX = Math.round((analysisOffsetX + textLayout.textX) * canvasScaleX);
+    mapped.textX = detectedTextX;
+    mapped.nameX = detectedTextX;
+    mapped.branchX = detectedTextX;
     mapped.nameY = Math.round((analysisOffsetY + textLayout.nameBaselineY) * canvasScaleY);
     mapped.branchY = Math.round((analysisOffsetY + textLayout.branchBaselineY) * canvasScaleY);
     mapped.nameFontSize = Math.max(10, Math.round(textLayout.nameFontSize * canvasScaleY));
@@ -911,7 +921,8 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
 
   if (showData) {
     const textAreaRight = Math.min(resolvedLayout.canvasWidth - 20, resolvedLayout.cardX + resolvedLayout.cardWidth - 24);
-    const textAreaWidth = Math.max(80, textAreaRight - resolvedLayout.textX);
+    const nameAreaWidth = Math.max(80, textAreaRight - resolvedLayout.nameX);
+    const branchAreaWidth = Math.max(80, textAreaRight - resolvedLayout.branchX);
     const cardBottomBaseline = resolvedLayout.cardY + resolvedLayout.cardHeight - 20;
 
     context.fillStyle = resolvedLayout.nameColor;
@@ -920,41 +931,42 @@ export async function buildVoterQrCardCanvas(options: RenderVoterQrCardOptions) 
     const reservedBranchHeight = Math.max(18, Math.round(resolvedLayout.branchFontSize * 1.1));
     const maxNameBottomBaseline = cardBottomBaseline - reservedBranchHeight - 8;
     const maxNameLines = Math.max(1, Math.floor((maxNameBottomBaseline - resolvedLayout.nameY) / nameLineHeight) + 1);
-    const nameLines = wrapTextToLines(context, options.voterName?.trim() || "-", textAreaWidth, maxNameLines);
+    const nameLines = wrapTextToLines(context, options.voterName?.trim() || "-", nameAreaWidth, maxNameLines);
     nameLines.forEach((line, index) => {
-      context.fillText(line, resolvedLayout.textX, resolvedLayout.nameY + index * nameLineHeight);
+      context.fillText(line, resolvedLayout.nameX, resolvedLayout.nameY + index * nameLineHeight);
     });
     const lastNameBaseline = resolvedLayout.nameY + (nameLines.length - 1) * nameLineHeight;
 
     context.fillStyle = resolvedLayout.branchColor;
     context.font = `500 ${resolvedLayout.branchFontSize}px Segoe UI, Arial, sans-serif`;
-    const branchValue = trimTextToWidth(context, options.branch?.trim() || "-", textAreaWidth);
+    const branchValue = trimTextToWidth(context, options.branch?.trim() || "-", branchAreaWidth);
     const minBranchBaseline = lastNameBaseline + Math.max(16, Math.round(resolvedLayout.branchFontSize * 0.9));
     const maxBranchBaseline = cardBottomBaseline;
     const branchBaseline = Math.min(maxBranchBaseline, Math.max(resolvedLayout.branchY, minBranchBaseline));
-    context.fillText(branchValue, resolvedLayout.textX, branchBaseline);
+    context.fillText(branchValue, resolvedLayout.branchX, branchBaseline);
   } else {
     context.fillStyle = "#e5e7eb";
     const textAreaRight = Math.min(resolvedLayout.canvasWidth - 20, resolvedLayout.cardX + resolvedLayout.cardWidth - 24);
-    const textAreaWidth = Math.max(80, textAreaRight - resolvedLayout.textX);
+    const nameAreaWidth = Math.max(80, textAreaRight - resolvedLayout.nameX);
+    const branchAreaWidth = Math.max(80, textAreaRight - resolvedLayout.branchX);
     const nameBlockHeight = Math.max(20, Math.round(resolvedLayout.nameFontSize * 0.84));
     const branchBlockHeight = Math.max(18, Math.round(resolvedLayout.branchFontSize * 0.84));
     context.fillRect(
-      resolvedLayout.textX,
+      resolvedLayout.nameX,
       resolvedLayout.nameY - nameBlockHeight,
-      Math.min(textAreaWidth, Math.max(180, Math.round(resolvedLayout.nameFontSize * 6.35))),
+      Math.min(nameAreaWidth, Math.max(180, Math.round(resolvedLayout.nameFontSize * 6.35))),
       nameBlockHeight + 2
     );
     context.fillRect(
-      resolvedLayout.textX,
+      resolvedLayout.nameX,
       resolvedLayout.nameY + 8,
-      Math.min(textAreaWidth, Math.max(140, Math.round(resolvedLayout.nameFontSize * 3.8))),
+      Math.min(nameAreaWidth, Math.max(140, Math.round(resolvedLayout.nameFontSize * 3.8))),
       nameBlockHeight + 2
     );
     context.fillRect(
-      resolvedLayout.textX,
+      resolvedLayout.branchX,
       resolvedLayout.branchY - branchBlockHeight,
-      Math.min(textAreaWidth, Math.max(140, Math.round(resolvedLayout.branchFontSize * 6.2))),
+      Math.min(branchAreaWidth, Math.max(140, Math.round(resolvedLayout.branchFontSize * 6.2))),
       branchBlockHeight + 2
     );
   }
