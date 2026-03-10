@@ -152,7 +152,7 @@ export function sanitizeVoterCardTemplateLayout(partial: Partial<VoterCardTempla
     nameColor: toStringValue(partial.nameColor, fallback.nameColor),
     branchColor: toStringValue(partial.branchColor, fallback.branchColor),
     footerColor: toStringValue(partial.footerColor, fallback.footerColor),
-    footerText: toStringValue(partial.footerText, fallback.footerText),
+    footerText: "",
   };
 }
 

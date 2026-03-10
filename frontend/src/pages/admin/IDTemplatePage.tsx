@@ -23,10 +23,8 @@ type PositionFieldKey =
   | "qrX"
   | "qrY"
   | "textX"
-  | "footerX"
   | "nameY"
-  | "branchY"
-  | "footerY";
+  | "branchY";
 
 type SizeFieldKey =
   | "cardWidth"
@@ -52,9 +50,8 @@ type ColorFieldKey =
   | "cardBorderColor"
   | "qrBorderColor"
   | "nameColor"
-  | "branchColor"
-  | "footerColor";
-type DragHandleId = "logo" | "card" | "qr" | "name" | "branch" | "footer";
+  | "branchColor";
+type DragHandleId = "logo" | "card" | "qr" | "name" | "branch";
 
 const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   logoX: { min: 20, max: 1800 },
@@ -64,10 +61,8 @@ const NUMBER_LIMITS: Record<NumberFieldKey, { min: number; max: number }> = {
   qrX: { min: 20, max: 1800 },
   qrY: { min: 20, max: 1300 },
   textX: { min: 20, max: 1800 },
-  footerX: { min: 20, max: 1800 },
   nameY: { min: 20, max: 1300 },
   branchY: { min: 20, max: 1300 },
-  footerY: { min: 20, max: 1300 },
   cardWidth: { min: 300, max: 1700 },
   cardHeight: { min: 220, max: 1200 },
   cardRadius: { min: 0, max: 200 },
@@ -92,7 +87,6 @@ const COLOR_FIELDS: Array<{ key: ColorFieldKey; label: string }> = [
   { key: "qrBorderColor", label: "QR Border" },
   { key: "nameColor", label: "Name Text" },
   { key: "branchColor", label: "Branch Text" },
-  { key: "footerColor", label: "Footer Text" },
 ];
 
 interface DragHandle {
@@ -111,7 +105,6 @@ const DRAG_HANDLES: DragHandle[] = [
   { id: "qr", label: "QR", xKey: "qrX", yKey: "qrY", widthKey: "qrSize", heightKey: "qrSize" },
   { id: "name", label: "Name", xKey: "textX", yKey: "nameY" },
   { id: "branch", label: "Branch", xKey: "textX", yKey: "branchY" },
-  { id: "footer", label: "Coop Vote", xKey: "footerX", yKey: "footerY" },
 ];
 
 const HANDLE_STYLES: Record<
@@ -152,12 +145,6 @@ const HANDLE_STYLES: Record<
     badge: "bg-violet-600 text-white",
     point: "border-violet-500 bg-violet-50 text-violet-700",
     active: "ring-violet-300",
-  },
-  footer: {
-    outline: "border-rose-500/80 bg-rose-500/10",
-    badge: "bg-rose-600 text-white",
-    point: "border-rose-500 bg-rose-50 text-rose-700",
-    active: "ring-rose-300",
   },
 };
 
@@ -985,56 +972,6 @@ export function IDTemplatePage() {
                       }
 
                       updateNumberField("headerHeight", event.target.value);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.currentTarget.blur();
-                      }
-                    }}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="template-footerX">Footer X</Label>
-                  <Input
-                    key={`footerX-${draftTemplate.footerX}`}
-                    id="template-footerX"
-                    type="number"
-                    min={NUMBER_LIMITS.footerX.min}
-                    max={NUMBER_LIMITS.footerX.max}
-                    step={1}
-                    defaultValue={draftTemplate.footerX}
-                    onBlur={(event) => {
-                      if (event.target.value.trim() === "") {
-                        event.target.value = String(draftTemplate.footerX);
-                        return;
-                      }
-
-                      updateNumberField("footerX", event.target.value);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.currentTarget.blur();
-                      }
-                    }}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="template-footerY">Footer Y</Label>
-                  <Input
-                    key={`footerY-${draftTemplate.footerY}`}
-                    id="template-footerY"
-                    type="number"
-                    min={NUMBER_LIMITS.footerY.min}
-                    max={NUMBER_LIMITS.footerY.max}
-                    step={1}
-                    defaultValue={draftTemplate.footerY}
-                    onBlur={(event) => {
-                      if (event.target.value.trim() === "") {
-                        event.target.value = String(draftTemplate.footerY);
-                        return;
-                      }
-
-                      updateNumberField("footerY", event.target.value);
                     }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
