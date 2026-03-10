@@ -115,6 +115,8 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
   const [recordsMeta, setRecordsMeta] = useState<PaginationMeta | null>(null);
   const [recordsPage, setRecordsPage] = useState(1);
   const [recordsBranchFilter, setRecordsBranchFilter] = useState("");
+  const [recordsSearchInput, setRecordsSearchInput] = useState("");
+  const [recordsSearch, setRecordsSearch] = useState("");
   const [summary, setSummary] = useState({ total: 0, present: 0, absent: 0 });
   const [loading, setLoading] = useState(false);
   const [activeElectionId, setActiveElectionId] = useState<number | null>(null);
@@ -150,12 +152,18 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
   const scanBusyRef = useRef(false);
   const lastScannedRef = useRef<{ voterId: string; at: number } | null>(null);
 
-  const loadAttendances = useCallback(async (electionId: number, page = 1, branch = recordsBranchFilter) => {
+  const loadAttendances = useCallback(async (
+    electionId: number,
+    page = 1,
+    branch = "",
+    search = ""
+  ) => {
     try {
       setLoading(true);
       const response = await getAttendances({
         election_id: electionId,
         branch: branch || undefined,
+        search: search || undefined,
         page,
         per_page: ATTENDANCE_PER_PAGE,
       });
@@ -168,6 +176,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
         void getAttendances({
           election_id: electionId,
           branch: branch || undefined,
+          search: search || undefined,
           page: response.meta.current_page + 1,
           per_page: ATTENDANCE_PER_PAGE,
         });
@@ -180,7 +189,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     } finally {
       setLoading(false);
     }
-  }, [recordsBranchFilter]);
+  }, []);
 
   const buildAttendanceLink = useCallback((electionId: number) => {
     const origin = window.location.origin;
@@ -242,7 +251,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           voterId,
           at: Date.now(),
         });
-        await loadAttendances(activeElectionId, recordsPage, recordsBranchFilter);
+        await loadAttendances(activeElectionId, recordsPage, recordsBranchFilter, recordsSearch);
       } catch (scanSubmitError) {
         const message = extractErrorMessage(scanSubmitError);
         const lowerMessage = message.toLowerCase();
@@ -260,7 +269,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
         });
       }
     },
-    [activeElectionId, loadAttendances, recordsBranchFilter, recordsPage]
+    [activeElectionId, loadAttendances, recordsBranchFilter, recordsPage, recordsSearch]
   );
 
   const handleExportPresent = useCallback(async () => {
@@ -339,7 +348,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
       setAddAttendanceOpen(false);
       setSelectedVoter(null);
       setVoterDropdownOpen(false);
-      await loadAttendances(activeElectionId, recordsPage, recordsBranchFilter);
+      await loadAttendances(activeElectionId, recordsPage, recordsBranchFilter, recordsSearch);
     } catch (addError) {
       const message = extractErrorMessage(addError);
       const lowerMessage = message.toLowerCase();
@@ -351,7 +360,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     } finally {
       setAddingAttendance(false);
     }
-  }, [activeElectionId, loadAttendances, recordsBranchFilter, recordsPage, selectedVoter]);
+  }, [activeElectionId, loadAttendances, recordsBranchFilter, recordsPage, recordsSearch, selectedVoter]);
 
   const handleDeleteAttendance = useCallback(async () => {
     if (deleteConfirmationInput.trim().toUpperCase() !== "DELETE ALL") {
@@ -382,7 +391,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
       });
       setDeleteAttendanceOpen(false);
       setDeleteConfirmationInput("");
-      await loadAttendances(activeElectionId, recordsPage, recordsBranchFilter);
+      await loadAttendances(activeElectionId, recordsPage, recordsBranchFilter, recordsSearch);
     } catch (deleteError) {
       setNotice({
         tone: "error",
@@ -392,7 +401,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
     } finally {
       setDeletingAttendance(false);
     }
-  }, [activeElectionId, deleteConfirmationInput, loadAttendances, recordsBranchFilter, recordsPage]);
+  }, [activeElectionId, deleteConfirmationInput, loadAttendances, recordsBranchFilter, recordsPage, recordsSearch]);
 
   const openDeleteAttendanceDialog = useCallback(() => {
     if (!activeElectionId) {
@@ -465,7 +474,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           setActiveElectionId(defaultElection.id);
           setActiveElectionLabel(`${defaultElection.title} (#${defaultElection.id})`);
           setActiveElectionStatus(defaultElection.status);
-          await loadAttendances(defaultElection.id, 1, recordsBranchFilter);
+          await loadAttendances(defaultElection.id, 1, recordsBranchFilter, recordsSearch);
         } else {
           setActiveElectionId(null);
           setActiveElectionLabel("No election selected");
@@ -480,7 +489,25 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
         });
       }
     })();
-  }, [loadAttendances, recordsBranchFilter]);
+  }, [loadAttendances]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextSearch = recordsSearchInput.trim();
+      setRecordsPage(1);
+      setRecordsSearch(nextSearch);
+
+      if (!activeElectionId) {
+        return;
+      }
+
+      void loadAttendances(activeElectionId, 1, recordsBranchFilter, nextSearch);
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeElectionId, loadAttendances, recordsBranchFilter, recordsSearchInput]);
 
   useEffect(() => {
     let cancelled = false;
@@ -720,6 +747,14 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
           </div>
           {view === "records" ? (
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <Input
+                className="min-w-[240px]"
+                placeholder="Search by name, voter ID, or branch"
+                value={recordsSearchInput}
+                onChange={(event) => {
+                  setRecordsSearchInput(event.target.value);
+                }}
+              />
               <Select
                 className="min-w-[170px]"
                 options={recordsBranchOptions}
@@ -734,7 +769,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
                     return;
                   }
 
-                  void loadAttendances(activeElectionId, 1, nextBranch);
+                  void loadAttendances(activeElectionId, 1, nextBranch, recordsSearch);
                 }}
               />
 
@@ -911,7 +946,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
                   if (!activeElectionId || recordsPage <= 1) {
                     return;
                   }
-                  void loadAttendances(activeElectionId, recordsPage - 1, recordsBranchFilter);
+                  void loadAttendances(activeElectionId, recordsPage - 1, recordsBranchFilter, recordsSearch);
                 }}
               >
                 Previous
@@ -925,7 +960,7 @@ export function AttendanceDashboard({ view = "attendance" }: AttendanceDashboard
                   if (!activeElectionId || (recordsMeta && recordsPage >= recordsMeta.last_page)) {
                     return;
                   }
-                  void loadAttendances(activeElectionId, recordsPage + 1, recordsBranchFilter);
+                  void loadAttendances(activeElectionId, recordsPage + 1, recordsBranchFilter, recordsSearch);
                 }}
               >
                 Next

@@ -99,6 +99,14 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+function escapeCsvValue(value: string) {
+  if (/[",\r\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+
+  return value;
+}
+
 async function buildVoterQrCardDataUrl(options: {
   voterId: string;
   voterKey: string;
@@ -344,7 +352,7 @@ export function VotersPage() {
     }
   };
 
-  const fetchAllVotersForQr = async () => {
+  const fetchAllFilteredVoters = async () => {
     const allVoters: User[] = [];
     let currentPage = 1;
     const perPage = 200;
@@ -380,7 +388,7 @@ export function VotersPage() {
       setSuccess(null);
       const templateLayout = getStoredVoterCardTemplateLayout();
 
-      const allVoters = await fetchAllVotersForQr();
+      const allVoters = await fetchAllFilteredVoters();
       const exportableVoters = allVoters.filter((voter) => voter.voter_id && voter.voter_key);
 
       if (exportableVoters.length === 0) {
@@ -462,6 +470,61 @@ export function VotersPage() {
     } finally {
       setExportingQRCodes(false);
       setExportQrProgress(null);
+    }
+  };
+
+  const handleExportVotedVoters = async () => {
+    if (!selectedElection) {
+      setError("Select an election first to export voted voters.");
+      return;
+    }
+
+    try {
+      setError(null);
+      setSuccess(null);
+
+      const allVoters = await fetchAllFilteredVoters();
+      const votedVoters = allVoters.filter((voter) => voter.has_voted);
+
+      if (votedVoters.length === 0) {
+        setError("No voted voters found for the selected election and filters.");
+        return;
+      }
+
+      const headers = [
+        "NAME",
+        "BRANCH",
+        "VOTER ID",
+        "VOTER KEY",
+        "ACCOUNT STATUS",
+        "VOTE STATUS",
+        "VOTED AT",
+        "ELECTION ID",
+        "ELECTION TITLE",
+      ];
+
+      const rows = votedVoters.map((voter) => [
+        voter.name,
+        voter.branch ?? "",
+        voter.voter_id ?? "",
+        voter.voter_key ?? "",
+        voter.is_active ? "ACTIVE" : "INACTIVE",
+        "VOTED",
+        voter.voted_at ?? "",
+        String(selectedElection.id),
+        selectedElection.title,
+      ]);
+
+      const csv = [headers, ...rows]
+        .map((row) => row.map((value) => escapeCsvValue(String(value))).join(","))
+        .join("\r\n");
+
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8;" }), `voted_voters_${selectedElection.id}_${timestamp}.csv`);
+      setSuccess(`Exported ${votedVoters.length} voted voter record(s).`);
+      setMenuOpen(false);
+    } catch (exportError) {
+      setError(extractErrorMessage(exportError));
     }
   };
 
@@ -730,6 +793,16 @@ export function VotersPage() {
                 </button>
                 <button
                   className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!selectedElection}
+                  onClick={() => {
+                    void handleExportVotedVoters();
+                  }}
+                >
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  Export Voted Voters
+                </button>
+                <button
+                  className="inline-flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={exportingQRCodes}
                   onClick={() => {
                     void handleExportVoterQRCodes();
@@ -891,7 +964,8 @@ export function VotersPage() {
               <TableHead>BRANCH</TableHead>
               <TableHead>VOTER ID</TableHead>
               <TableHead>VOTER KEY</TableHead>
-              <TableHead>STATUS</TableHead>
+              <TableHead>ACCOUNT STATUS</TableHead>
+              <TableHead>VOTE STATUS</TableHead>
               <TableHead>ACTIONS</TableHead>
             </TableRow>
           </TableHeader>
@@ -915,6 +989,9 @@ export function VotersPage() {
                       <div className="h-6 w-20 animate-pulse rounded-full bg-secondary" />
                     </TableCell>
                     <TableCell>
+                      <div className="h-6 w-24 animate-pulse rounded-full bg-secondary" />
+                    </TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-2">
                         <div className="h-9 w-9 animate-pulse rounded-[9px] bg-secondary" />
                         <div className="h-9 w-9 animate-pulse rounded-[9px] bg-secondary" />
@@ -930,24 +1007,31 @@ export function VotersPage() {
                     <TableCell>{voter.voter_id ?? "-"}</TableCell>
                     <TableCell>{voter.voter_key ?? "-"}</TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {voter.is_active ? (
-                          <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Active</Badge>
-                        ) : (
-                          <Badge variant="secondary" className="bg-slate-200 text-slate-700 hover:bg-slate-200">
-                            Inactive
-                          </Badge>
-                        )}
-                        {selectedElection ? (
-                          voter.has_voted ? (
+                      {voter.is_active ? (
+                        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Active</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="bg-slate-200 text-slate-700 hover:bg-slate-200">
+                          Inactive
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {selectedElection ? (
+                        voter.has_voted ? (
+                          <div className="space-y-1">
                             <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Voted</Badge>
-                          ) : (
-                            <Badge variant="secondary" className="bg-amber-100 text-amber-800 hover:bg-amber-100">
-                              Not Yet Voted
-                            </Badge>
-                          )
-                        ) : null}
-                      </div>
+                            {voter.voted_at ? (
+                              <p className="text-xs text-muted-foreground">{new Date(voter.voted_at).toLocaleString()}</p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <Badge variant="secondary" className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+                            Not Yet Voted
+                          </Badge>
+                        )
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No election selected</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -992,7 +1076,7 @@ export function VotersPage() {
 
             {!loading && voters.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                <TableCell colSpan={7} className="text-center text-muted-foreground">
                   No voters found.
                 </TableCell>
               </TableRow>
